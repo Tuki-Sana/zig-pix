@@ -308,11 +308,15 @@ zig llvm-nm -D zig-out/linux-x86_64/libpict.so | grep pict_encode_avif  # シン
 - [x] npm publish フロー確立 (`npm pack` → テスト → `npm publish`)
   - `npm login` + Granular Access Token (Bypass 2FA) で認証
   - プラットフォームパッケージ → メインの順に publish
-  - `zigpix@0.0.2` / `zigpix-darwin-arm64@0.0.2` / `zigpix-linux-x64@0.0.2` を公開済み
+  - `zigpix@0.0.3` / `zigpix-darwin-arm64@0.0.3` / `zigpix-linux-x64@0.0.3` を公開済み
   - E2E テスト（別ディレクトリで `npm install zigpix` → decode / resize / encodeWebP / encodeAvif 全 PASS）確認済み
 - [x] `README.md` に `npm install zigpix` の使い方を追記
   - インストール手順・ESM 明記・API リファレンス・トラブルシューティング・動作環境表を追加
   - Codex レビュー指摘（ESM明記・encodeAvif null条件・トラブルシュート）対応済み
+- [x] Codex レビュー指摘（0.0.3）対応済み
+  - `encodeAvif` JS 層で quality/speed 範囲チェック追加（小数・負値・範囲超え → null）
+  - 非対応 platform/arch で即時エラー（`unsupported platform/architecture` メッセージ）
+  - arm64 以外を x64 にサイレントフォールバックする問題を解消
 
 ### Phase 8C — Deno 対応（任意）
 
