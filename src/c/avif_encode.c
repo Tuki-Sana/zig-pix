@@ -63,9 +63,20 @@ int pict_avif_encode(
         avifImageDestroy(image);
         return -1;
     }
+    /* AVIF_QUALITY_LOSSLESS was introduced in libavif 1.0.0.
+     * Older versions (< 1.0.0) use the quantizer-based API (0-63, lower = better quality). */
+#ifdef AVIF_QUALITY_LOSSLESS
     encoder->quality      = quality;
-    encoder->qualityAlpha = AVIF_QUALITY_LOSSLESS; /* alpha channel: lossless */
-    encoder->speed        = speed;
+    encoder->qualityAlpha = AVIF_QUALITY_LOSSLESS;
+#else
+    /* Map quality 0-100 → quantizer 63-0 (inverse scale). */
+    int quantizer = ((100 - quality) * 63) / 100;
+    encoder->minQuantizer      = quantizer;
+    encoder->maxQuantizer      = quantizer;
+    encoder->minQuantizerAlpha = AVIF_QUANTIZER_LOSSLESS;
+    encoder->maxQuantizerAlpha = AVIF_QUANTIZER_LOSSLESS;
+#endif
+    encoder->speed = speed;
 
     avifRWData output = AVIF_DATA_EMPTY;
     avifResult enc_result = avifEncoderWrite(encoder, image, &output);
