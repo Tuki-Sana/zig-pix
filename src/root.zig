@@ -350,6 +350,17 @@ test "pict_encode_webp: null 入力で null 返却、out_len 不変 (Category B)
     try std.testing.expectEqual(@as(usize, 0xDEAD), out_len);
 }
 
+test "pict_decode_v2: 不正データで null 返却、out_len 不変 (Category B)" {
+    const bad = [_]u8{ 0x00, 0x01, 0x02, 0x03, 0x04 };
+    var out_w: u32 = 0;
+    var out_h: u32 = 0;
+    var out_ch: u8 = 0;
+    var out_len: usize = 0xDEAD;
+    const ptr = pict_decode_v2(bad[0..].ptr, bad.len, &out_w, &out_h, &out_ch, &out_len);
+    try std.testing.expectEqual(@as(?[*]u8, null), ptr);
+    try std.testing.expectEqual(@as(usize, 0xDEAD), out_len);
+}
+
 test "pict_decode: 不正データは null を返す" {
     const bad = [_]u8{ 0x00, 0x01, 0x02, 0x03, 0x04 };
     var out_w: u32 = 0;
