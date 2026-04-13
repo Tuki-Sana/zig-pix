@@ -1,7 +1,6 @@
 /// main.zig — CLI エントリポイント
 ///
-/// Phase 0: 引数パース骨格のみ。
-/// Phase 2 で decode → resize → encode の end-to-end を実装する。
+/// パイプライン: ファイル読み込み → decode → (resize) → WebP encode → ファイル書き込み
 
 const std = @import("std");
 const pict = @import("pict");
@@ -50,10 +49,130 @@ pub fn main() !void {
         std.process.exit(1);
     };
 
-    // Phase 2 でここに pipeline を実装する
-    _ = pict;
-    std.log.warn("Phase 2: pipeline not yet implemented. Input: {s}", .{cli.input});
+    runPipeline(allocator, cli) catch |err| {
+        const stderr = std.io.getStdErr().writer();
+        try stderr.print("Error: {s}\n", .{@errorName(err)});
+        std.process.exit(1);
+    };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// パイプライン実装
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn runPipeline(allocator: std.mem.Allocator, cli: CliArgs) !void {
+    // ── 入力ファイル読み込み ──────────────────────────────────────────────────
+    const input_data = try std.fs.cwd().readFileAlloc(allocator, cli.input, 256 * 1024 * 1024);
+    defer allocator.free(input_data);
+
+    // ── フォーマット検出 & デコード ──────────────────────────────────────────
+    const fmt = pict.decode.detectFormat(input_data);
+    var decoder = switch (fmt) {
+        .jpeg => pict.decode.jpegDecoder(),
+        .png  => pict.decode.pngDecoder(),
+        .unknown => {
+            std.log.err("Unsupported input format (expected JPEG or PNG): {s}", .{cli.input});
+            return error.UnsupportedFormat;
+        },
+    };
+    defer decoder.deinit();
+
+    var src_buf = try decoder.decode(input_data, allocator);
+    defer src_buf.deinit();
+
+    std.log.info("Decoded: {s} → {}×{} ch={}", .{
+        cli.input, src_buf.width, src_buf.height, src_buf.channels,
+    });
+
+    // ── リサイズ (必要な場合のみ) ──────────────────────────────────────────
+    const out_buf: pict.decode.ImageBuffer = blk: {
+        const dst_w, const dst_h = computeOutputDims(
+            src_buf.width, src_buf.height,
+            cli.width, cli.height,
+        );
+
+        if (dst_w == src_buf.width and dst_h == src_buf.height) {
+            // リサイズ不要: 元バッファをそのまま使う (所有権は src_buf が持つ)
+            break :blk src_buf;
+        }
+
+        std.log.info("Resize: {}×{} → {}×{}", .{ src_buf.width, src_buf.height, dst_w, dst_h });
+
+        const dst_data = try allocator.alloc(u8, @as(usize, dst_w) * dst_h * src_buf.channels);
+        errdefer allocator.free(dst_data);
+
+        try pict.resize.resizeLanczos3(allocator, src_buf.data, dst_data, .{
+            .src_width  = src_buf.width,
+            .src_height = src_buf.height,
+            .dst_width  = dst_w,
+            .dst_height = dst_h,
+            .channels   = src_buf.channels,
+        });
+
+        break :blk pict.decode.ImageBuffer{
+            .width     = dst_w,
+            .height    = dst_h,
+            .channels  = src_buf.channels,
+            .format    = src_buf.format,
+            .data      = dst_data,
+            .allocator = allocator,
+        };
+    };
+    // src_buf と out_buf が別オブジェクトの場合のみ out_buf を deinit する
+    defer if (out_buf.data.ptr != src_buf.data.ptr) {
+        var b = out_buf;
+        b.deinit();
+    };
+
+    // ── WebP エンコード ───────────────────────────────────────────────────────
+    var encoder = pict.encode.webpEncoder();
+    defer encoder.deinit();
+
+    var encoded = try encoder.encode(out_buf, .{ .webp = .{
+        .quality  = cli.quality,
+        .lossless = cli.lossless,
+    } }, allocator);
+    defer encoded.deinit();
+
+    std.log.info("Encoded: {} bytes WebP → {s}", .{ encoded.data.len, cli.output });
+
+    // ── 出力ファイル書き込み ─────────────────────────────────────────────────
+    try std.fs.cwd().writeFile(.{
+        .sub_path = cli.output,
+        .data     = encoded.data,
+    });
+
+    std.log.info("Done.", .{});
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 出力寸法計算 (アスペクト比維持)
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn computeOutputDims(
+    src_w: u32, src_h: u32,
+    req_w: ?u32, req_h: ?u32,
+) struct { u32, u32 } {
+    if (req_w != null and req_h != null) return .{ req_w.?, req_h.? };
+
+    if (req_w) |w| {
+        const h = @max(1, @as(u32, @intFromFloat(
+            @as(f64, @floatFromInt(src_h)) * @as(f64, @floatFromInt(w)) / @as(f64, @floatFromInt(src_w))
+        )));
+        return .{ w, h };
+    }
+    if (req_h) |h| {
+        const w = @max(1, @as(u32, @intFromFloat(
+            @as(f64, @floatFromInt(src_w)) * @as(f64, @floatFromInt(h)) / @as(f64, @floatFromInt(src_h))
+        )));
+        return .{ w, h };
+    }
+    return .{ src_w, src_h };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 引数パーサ
+// ─────────────────────────────────────────────────────────────────────────────
 
 fn parseArgs(args: []const []const u8) !CliArgs {
     if (args.len < 3) return error.TooFewArguments;
@@ -65,7 +184,7 @@ fn parseArgs(args: []const []const u8) !CliArgs {
     }
 
     var result = CliArgs{
-        .input = args[1],
+        .input  = args[1],
         .output = args[2],
     };
 
