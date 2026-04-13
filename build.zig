@@ -728,10 +728,11 @@ fn addLibwebp(b: *std.Build, artifact: *std.Build.Step.Compile) void {
 // パス解決優先順位:
 //   1. pkg-config --cflags-only-I / --libs-only-L libavif が成功した場合はその出力を使用
 //   2. macOS のみ: 失敗時は Homebrew 標準プレフィクス (/opt/homebrew) に fallback
-//   3. Linux: pkg-config が必須。失敗時は b.fatal でビルドを停止する。
+//   3. Linux: pkg-config が必須。失敗時は stderr にエラーを出力して exit(1) する。
 //
 // 分岐は artifact の target OS で行う (ホスト OS ではない)。
 // ffi_lib_linux (linux_target) には呼ばれない設計 (has_avif=false のため)。
+// 注: b.fatal は Zig 0.13.0 未収録のため stderr + std.process.exit(1) で代替している。
 fn addLibAvifSystem(b: *std.Build, artifact: *std.Build.Step.Compile) void {
     const target_os = artifact.rootModuleTarget().os.tag;
     const is_macos  = target_os == .macos;
@@ -748,7 +749,6 @@ fn addLibAvifSystem(b: *std.Build, artifact: *std.Build.Step.Compile) void {
     ) catch null;
 
     // Linux: どちらか一方でも欠けたら即エラー終了
-    // (b.fatal は Zig 0.13.0 未収録のため stderr + exit を使う)
     if (!is_macos and pkg_cflags == null) {
         std.io.getStdErr().writer().print(
             "error: libavif headers not found for target {s}.\n" ++

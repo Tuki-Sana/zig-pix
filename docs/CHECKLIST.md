@@ -267,4 +267,4 @@ zig llvm-nm -D zig-out/linux-x86_64/libpict.so | grep pict_encode_avif  # シン
 - [ ] E2E テスト自動化 (`build.zig` に `zig build e2e` ステップ)
 - [ ] メモリピーク計測・Sharp との比較
 - [x] Linux VPS クロスコンパイル動作確認 (`zig build linux`) — Phase 4 で確認済み
-- [ ] `docs/operations.md` 更新 (Phase 2 完了時点の手順)
+- [x] `docs/operations.md` 更新 — Phase 7C で libavif 依存手順・FFI テスト手順を追記済み
