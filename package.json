@@ -23,7 +23,9 @@
     "prepublishOnly": "npm run build",
     "test:bun": "bash test/ffi/run.sh",
     "test:node": "bash test/ffi/run.node.sh",
-    "mem:peak": "bash scripts/mem-peak.sh"
+    "mem:peak": "bash scripts/mem-peak.sh",
+    "bench": "tsx bench/bench.ts",
+    "bench:quality": "tsx bench/bench-quality.ts"
   },
   "keywords": [
     "avif",
@@ -44,10 +46,12 @@
     "zigpix-linux-x64": "0.1.2"
   },
   "dependencies": {
-    "koffi": "^2.9.0"
+    "koffi": "^2.9.0",
+    "sharp": "^0.34.5"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
+    "sharp": "^0.34.0",
     "tsx": "^4.19.0",
     "typescript": "^5.8.0"
   },

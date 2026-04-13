@@ -70,7 +70,7 @@ inline fn mul3SizeChecked(a: usize, b: usize, c: usize) ?usize {
 }
 
 /// @deprecated Use pict_decode_v2 which returns out_len for safe buffer release.
-/// JPEG または PNG をデコードして RGBA/RGB ピクセル列を返す。
+/// JPEG または PNG をデコードして RGBA/RGB ピクセル列を返す。HEIC/HEIF は非対応。
 /// 成功時: ピクセルデータへのポインタ (pict_free_buffer(ptr, w*h*ch) で解放)。
 /// 失敗時: null。
 export fn pict_decode(
@@ -84,7 +84,7 @@ export fn pict_decode(
     return pict_decode_v2(data, len, out_w, out_h, out_ch, &tmp_len);
 }
 
-/// JPEG または PNG をデコードして RGBA/RGB ピクセル列を返す。
+/// JPEG または PNG をデコードして RGBA/RGB ピクセル列を返す。HEIC/HEIF は非対応。
 /// 成功時: ピクセルデータへのポインタ (pict_free_buffer(ptr, out_len) で解放)。
 /// 失敗時: null。out_len は変更しない。
 export fn pict_decode_v2(

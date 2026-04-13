@@ -9,6 +9,7 @@ jobs:
   bench-linux-x64:
     runs-on: ubuntu-24.04
     continue-on-error: true
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v4
@@ -41,13 +42,13 @@ jobs:
       - name: Build libpict.so (static avif)
         run: zig build lib -Doptimize=ReleaseFast -Davif=static
 
-      - name: Install Node.js deps (zigpix + sharp)
-        run: npm install && npm install sharp
+      - name: Install Node.js deps (zigpix + sharp devDependency)
+        run: npm install
 
       - name: Build JS wrapper (js/dist/)
         run: npm run build
 
-      - name: Run benchmark (zigpix vs sharp)
+      - name: Run benchmark (zigpix vs sharp, FHD / WQHD / 4K 相当)
         run: npx tsx bench/bench.ts
 
       - name: Upload benchmark results

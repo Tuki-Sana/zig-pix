@@ -1,10 +1,11 @@
 /**
- * bench/bench.ts — zigpix vs sharp benchmark
+ * bench/bench.ts — zigpix vs sharp benchmark (multi-scenario)
  *
- * Scenario: decode(512×512 PNG) → resize(256×256) → encodeAVIF(quality=60, speed=6)
- * Runs WARMUP_N warm-up iterations then MEASURE_N measured iterations.
- * Reports median, min, max wall-clock time for each tool.
- * ratio = sharp_median / zigpix_median (> 1 means zigpix is faster)
+ * For each scenario: decode(PNG) → resize(outW×outH) → encodeAVIF(quality, speed)
+ * Input PNGs are generated once from test/fixtures/bench_input.png (512×512)
+ * scaled with Sharp (cover) to the target width×height.
+ *
+ * WARMUP_N / MEASURE_N overridable via BENCH_WARMUP_N / BENCH_MEASURE_N.
  *
  * Output:
  *   bench/results/benchmark.json
@@ -12,6 +13,7 @@
  *
  * Run:
  *   npm install sharp   (if not already installed)
+ *   npm run build       (needs js/dist/index.js)
  *   npx tsx bench/bench.ts
  */
 
@@ -22,14 +24,30 @@ import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const FIXTURE  = join(__dirname, "../test/fixtures/bench_input.png");
-const OUT_DIR  = join(__dirname, "results");
-const WARMUP_N  = 2;
-const MEASURE_N = 10;
+const BASE_FIXTURE = join(__dirname, "../test/fixtures/bench_input.png");
+const OUT_DIR = join(__dirname, "results");
+
+const WARMUP_N = Math.max(0, parseInt(process.env.BENCH_WARMUP_N ?? "2", 10));
+const MEASURE_N = Math.max(1, parseInt(process.env.BENCH_MEASURE_N ?? "10", 10));
+const AVIF_QUALITY = 60;
+const AVIF_SPEED = 6;
 
 mkdirSync(OUT_DIR, { recursive: true });
 
-// ── Utility ───────────────────────────────────────────────────────────────────
+/** Representative web pipeline: ~FHD / WQHD / 4K class input → half linear dimensions */
+const SCENARIOS = [
+  { id: "fhd", label: "FHD 相当", inW: 1920, inH: 1080, outW: 960, outH: 540 },
+  { id: "wqhd", label: "WQHD 相当", inW: 2560, inH: 1440, outW: 1280, outH: 720 },
+  { id: "uhd4k", label: "4K 相当", inW: 3840, inH: 2160, outW: 1920, outH: 1080 },
+] as const;
+
+type Scenario = (typeof SCENARIOS)[number];
+
+interface Timings {
+  median_ms: number;
+  min_ms: number;
+  max_ms: number;
+}
 
 function median(arr: number[]): number {
   const s = [...arr].sort((a, b) => a - b);
@@ -41,126 +59,172 @@ function fmt(ms: number): string {
   return ms.toFixed(2);
 }
 
-// ── zigpix bench ──────────────────────────────────────────────────────────────
+async function makeInputPng(s: Scenario): Promise<Buffer> {
+  const base = readFileSync(BASE_FIXTURE);
+  return sharp(base)
+    .resize(s.inW, s.inH, { fit: "cover", position: "centre" })
+    .png()
+    .toBuffer();
+}
 
-async function benchZigpix(): Promise<number[]> {
-  const input = readFileSync(FIXTURE);
+function benchZigpix(input: Buffer, outW: number, outH: number): number[] {
   const times: number[] = [];
-
   for (let i = 0; i < WARMUP_N + MEASURE_N; i++) {
     const t0 = performance.now();
-    const img    = decode(input);
-    const small  = resize(img, { width: 256, height: 256 });
-    const avif   = encodeAvif(small, { quality: 60, speed: 6 });
+    const img = decode(input);
+    const small = resize(img, { width: outW, height: outH });
+    const avif = encodeAvif(small, { quality: AVIF_QUALITY, speed: AVIF_SPEED });
     const t1 = performance.now();
-
     if (avif === null) throw new Error("zigpix encodeAvif returned null");
     if (i >= WARMUP_N) times.push(t1 - t0);
   }
-
   return times;
 }
 
-// ── sharp bench ───────────────────────────────────────────────────────────────
-
-async function benchSharp(): Promise<number[]> {
-  const input = readFileSync(FIXTURE);
+async function benchSharp(input: Buffer, outW: number, outH: number): Promise<number[]> {
   const times: number[] = [];
-
   for (let i = 0; i < WARMUP_N + MEASURE_N; i++) {
     const t0 = performance.now();
     await sharp(input)
-      .resize(256, 256)
-      .avif({ quality: 60, speed: 6 })
+      .resize(outW, outH)
+      .avif({ quality: AVIF_QUALITY, speed: AVIF_SPEED })
       .toBuffer();
     const t1 = performance.now();
-
     if (i >= WARMUP_N) times.push(t1 - t0);
   }
-
   return times;
+}
+
+function summarize(times: number[]): Timings {
+  return {
+    median_ms: parseFloat(fmt(median(times))),
+    min_ms: parseFloat(fmt(Math.min(...times))),
+    max_ms: parseFloat(fmt(Math.max(...times))),
+  };
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
-console.log(`Benchmark: decode+resize+AVIF (512×512→256×256, quality=60, speed=6)`);
-console.log(`Warm-up: ${WARMUP_N} / Measure: ${MEASURE_N} iterations\n`);
-
-console.log("Running zigpix...");
-const zigpixTimes = await benchZigpix();
-const zigpixMedian = median(zigpixTimes);
-const zigpixMin    = Math.min(...zigpixTimes);
-const zigpixMax    = Math.max(...zigpixTimes);
-
-console.log("Running sharp...");
-const sharpTimes  = await benchSharp();
-const sharpMedian = median(sharpTimes);
-const sharpMin    = Math.min(...sharpTimes);
-const sharpMax    = Math.max(...sharpTimes);
-
-const ratio = sharpMedian / zigpixMedian;
-
-// ── Console output ────────────────────────────────────────────────────────────
-
-console.log(`
-┌─────────────────────────────────────────────────────────┐
-│  Benchmark Results (wall-clock ms, ${MEASURE_N} iterations)         │
-├──────────┬──────────┬──────────┬──────────┬────────────┤
-│ Tool     │ Median   │ Min      │ Max      │ vs. sharp  │
-├──────────┼──────────┼──────────┼──────────┼────────────┤
-│ zigpix   │ ${fmt(zigpixMedian).padEnd(8)} │ ${fmt(zigpixMin).padEnd(8)} │ ${fmt(zigpixMax).padEnd(8)} │ ${ratio.toFixed(2)}×       │
-│ sharp    │ ${fmt(sharpMedian).padEnd(8)} │ ${fmt(sharpMin).padEnd(8)} │ ${fmt(sharpMax).padEnd(8)} │ 1.00×      │
-└──────────┴──────────┴──────────┴──────────┴────────────┘
-ratio = sharp_median / zigpix_median = ${ratio.toFixed(2)} (>1 means zigpix is faster)
-`);
-
-// ── Write results ─────────────────────────────────────────────────────────────
-
-const now = new Date().toISOString();
 const runner = process.env.RUNNER_OS
   ? `${process.env.RUNNER_OS} (GitHub Actions)`
   : `${process.platform}-${process.arch} (local)`;
 
+console.log(
+  `Benchmark: decode + resize + AVIF (quality=${AVIF_QUALITY}, speed=${AVIF_SPEED})`,
+);
+console.log(`Warm-up: ${WARMUP_N} / Measure: ${MEASURE_N} iterations`);
+console.log(`Input: ${BASE_FIXTURE} → Sharp cover-resize per scenario\n`);
+
+const scenarioResults: Array<{
+  scenario: Scenario;
+  input_png_bytes: number;
+  zigpix: Timings;
+  sharp: Timings;
+  ratio: number;
+}> = [];
+
+for (const s of SCENARIOS) {
+  console.log(`── ${s.label} (${s.inW}×${s.inH} → ${s.outW}×${s.outH}) ──`);
+  const inputPng = await makeInputPng(s);
+  console.log(`  input PNG size: ${inputPng.length} bytes`);
+
+  console.log("  zigpix...");
+  const zigpixTimes = benchZigpix(inputPng, s.outW, s.outH);
+  const zigpix = summarize(zigpixTimes);
+
+  console.log("  sharp...");
+  const sharpTimes = await benchSharp(inputPng, s.outW, s.outH);
+  const sharpT = summarize(sharpTimes);
+
+  const ratio = sharpT.median_ms / zigpix.median_ms;
+  scenarioResults.push({
+    scenario: s,
+    input_png_bytes: inputPng.length,
+    zigpix,
+    sharp: sharpT,
+    ratio: parseFloat(ratio.toFixed(2)),
+  });
+
+  console.log(
+    `  median: zigpix ${fmt(zigpix.median_ms)} ms / sharp ${fmt(sharpT.median_ms)} ms → ratio ${ratio.toFixed(2)} (sharp÷zigpix)\n`,
+  );
+}
+
+// ── Console matrix ───────────────────────────────────────────────────────────
+
+const colW = 12;
+const pad = (s: string, w: number) => s.padStart(w);
+console.log("┌────────────┬──────────────────┬──────────────────┬──────────┐");
+console.log("│ Scenario   │ zigpix median ms │ sharp median ms  │ ratio    │");
+console.log("├────────────┼──────────────────┼──────────────────┼──────────┤");
+for (const r of scenarioResults) {
+  const id = r.scenario.id.padEnd(10);
+  console.log(
+    `│ ${id} │ ${pad(fmt(r.zigpix.median_ms), colW)} │ ${pad(fmt(r.sharp.median_ms), colW)} │ ${pad(r.ratio.toFixed(2) + "×", 8)} │`,
+  );
+}
+console.log("└────────────┴──────────────────┴──────────────────┴──────────┘");
+console.log("ratio = sharp_median / zigpix_median (>1 ⇒ zigpix faster wall-clock)\n");
+
+// ── JSON ──────────────────────────────────────────────────────────────────────
+
+const now = new Date().toISOString();
 const jsonResult = {
   date: now,
   runner,
-  scenario: "decode+resize+avif 512x512→256x256 quality=60 speed=6",
-  iterations: MEASURE_N,
-  zigpix: {
-    median_ms: parseFloat(fmt(zigpixMedian)),
-    min_ms:    parseFloat(fmt(zigpixMin)),
-    max_ms:    parseFloat(fmt(zigpixMax)),
+  pipeline: "decode PNG → resize → AVIF",
+  fixture: {
+    source: "test/fixtures/bench_input.png",
+    per_scenario: "Sharp resize (fit=cover) to inW×inH, then PNG bytes fed to timed loop",
   },
-  sharp: {
-    median_ms: parseFloat(fmt(sharpMedian)),
-    min_ms:    parseFloat(fmt(sharpMin)),
-    max_ms:    parseFloat(fmt(sharpMax)),
-  },
-  ratio: parseFloat(ratio.toFixed(2)),
+  avif: { quality: AVIF_QUALITY, speed: AVIF_SPEED },
+  iterations: { warmup: WARMUP_N, measure: MEASURE_N },
+  scenarios: scenarioResults.map((r) => ({
+    id: r.scenario.id,
+    label: r.scenario.label,
+    input_px: `${r.scenario.inW}×${r.scenario.inH}`,
+    output_px: `${r.scenario.outW}×${r.scenario.outH}`,
+    input_png_bytes: r.input_png_bytes,
+    zigpix: r.zigpix,
+    sharp: r.sharp,
+    ratio_sharp_median_over_zigpix_median: r.ratio,
+  })),
 };
 
-const mdResult = `# Benchmark Results
+// ── Markdown ─────────────────────────────────────────────────────────────────
+
+const mdRows = scenarioResults
+  .map(
+    (r) =>
+      `| ${r.scenario.label} | ${r.scenario.inW}×${r.scenario.inH} | ${r.scenario.outW}×${r.scenario.outH} | ${fmt(r.zigpix.median_ms)} | ${fmt(r.zigpix.min_ms)} | ${fmt(r.zigpix.max_ms)} | ${fmt(r.sharp.median_ms)} | ${fmt(r.sharp.min_ms)} | ${fmt(r.sharp.max_ms)} | **${r.ratio.toFixed(2)}×** |`,
+  )
+  .join("\n");
+
+const mdResult = `# Benchmark Results (matrix)
 
 **Date**: ${now}  
 **Runner**: ${runner}  
-**Scenario**: decode + resize(256×256) + AVIF encode (512×512 input, quality=60, speed=6)  
-**Iterations**: ${MEASURE_N} (after ${WARMUP_N} warm-up)
+**Pipeline**: decode PNG → resize → AVIF (quality=${AVIF_QUALITY}, speed=${AVIF_SPEED})  
+**Warm-up / measure**: ${WARMUP_N} / ${MEASURE_N} per tool per scenario  
+**Input**: \`test/fixtures/bench_input.png\` scaled to each input size (Sharp, \`fit=cover\`) once per scenario; timed section starts from those PNG bytes.
 
-| Tool   | Median (ms) | Min (ms) | Max (ms) |
-|--------|------------:|---------:|---------:|
-| zigpix | ${fmt(zigpixMedian)} | ${fmt(zigpixMin)} | ${fmt(zigpixMax)} |
-| sharp  | ${fmt(sharpMedian)} | ${fmt(sharpMin)} | ${fmt(sharpMax)} |
+| シナリオ | 入力 (px) | 出力 (px) | zigpix med (ms) | zig min | zig max | sharp med (ms) | sharp min | sharp max | ratio |
+|----------|-----------|-----------|----------------:|--------:|--------:|---------------:|----------:|----------:|------:|
+${mdRows}
 
-**ratio = sharp_median / zigpix_median = ${ratio.toFixed(2)}**  
-${ratio > 1 ? `zigpix is **${ratio.toFixed(2)}× faster** than sharp` : `sharp is **${(1 / ratio).toFixed(2)}× faster** than zigpix`}
+**ratio** = sharp median ÷ zigpix median (**>1** means zigpix lower wall-clock median for this pipeline).
+
+## JSON
+
+See \`benchmark.json\` in this directory for machine-readable rows (\`scenarios[]\`).
 `;
 
 const jsonPath = join(OUT_DIR, "benchmark.json");
-const mdPath   = join(OUT_DIR, "benchmark.md");
+const mdPath = join(OUT_DIR, "benchmark.md");
 
 writeFileSync(jsonPath, JSON.stringify(jsonResult, null, 2) + "\n");
-writeFileSync(mdPath,   mdResult);
+writeFileSync(mdPath, mdResult);
 
-console.log(`Results saved:`);
+console.log("Results saved:");
 console.log(`  ${jsonPath}`);
 console.log(`  ${mdPath}`);

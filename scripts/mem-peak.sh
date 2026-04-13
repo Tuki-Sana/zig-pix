@@ -104,7 +104,7 @@ if [[ -f node_modules/sharp/package.json ]]; then
 else
   echo ""
   echo "（スキップ）bench/bench.ts — node_modules/sharp がありません。"
-  echo "  計測する場合: npm install && npm install sharp（あわせて npm run build で js/dist を生成）"
+  echo "  計測する場合: npm install（sharp は devDependency）と npm run build（js/dist）"
 fi
 
 echo ""
