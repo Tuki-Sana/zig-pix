@@ -152,9 +152,19 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     addCLibraries(b, unit_tests, jconfig_h, jconfigint_h, jversion_h);
-    const run_tests = b.addRunArtifact(unit_tests);
+
+    // CLI (main.zig) の parseArgs 等の純 Zig テストも同じステップで実行する。
+    const cli_tests = b.addTest(.{
+        .root_source_file = b.path("src/main.zig"),
+        .target = native_target,
+        .optimize = optimize,
+    });
+    cli_tests.root_module.addImport("pict", pict_mod);
+    addCLibraries(b, cli_tests, jconfig_h, jconfigint_h, jversion_h);
+
     const test_step = b.step("test", "Run unit tests");
-    test_step.dependOn(&run_tests.step);
+    test_step.dependOn(&b.addRunArtifact(unit_tests).step);
+    test_step.dependOn(&b.addRunArtifact(cli_tests).step);
 
     // ── Benchmarks ────────────────────────────────────────────────────────────
     const bench_exe = b.addExecutable(.{

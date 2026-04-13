@@ -214,3 +214,77 @@ fn parseArgs(args: []const []const u8) !CliArgs {
 
     return result;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// parseArgs ユニットテスト
+// ─────────────────────────────────────────────────────────────────────────────
+
+test "parseArgs: basic input/output" {
+    const args = [_][]const u8{ "pict", "in.jpg", "out.webp" };
+    const cli = try parseArgs(&args);
+    try std.testing.expectEqualStrings("in.jpg", cli.input);
+    try std.testing.expectEqualStrings("out.webp", cli.output);
+    try std.testing.expectEqual(@as(f32, 92.0), cli.quality);
+    try std.testing.expectEqual(false, cli.lossless);
+}
+
+test "parseArgs: -w and -h" {
+    const args = [_][]const u8{ "pict", "in.jpg", "out.webp", "-w", "1920", "-h", "1080" };
+    const cli = try parseArgs(&args);
+    try std.testing.expectEqual(@as(u32, 1920), cli.width.?);
+    try std.testing.expectEqual(@as(u32, 1080), cli.height.?);
+}
+
+test "parseArgs: --lossless flag" {
+    const args = [_][]const u8{ "pict", "in.jpg", "out.webp", "--lossless" };
+    const cli = try parseArgs(&args);
+    try std.testing.expectEqual(true, cli.lossless);
+}
+
+test "parseArgs: -q valid value (80)" {
+    const args = [_][]const u8{ "pict", "in.jpg", "out.webp", "-q", "80" };
+    const cli = try parseArgs(&args);
+    try std.testing.expectEqual(@as(f32, 80.0), cli.quality);
+}
+
+test "parseArgs: -q boundary 0 (valid)" {
+    const args = [_][]const u8{ "pict", "in.jpg", "out.webp", "-q", "0" };
+    const cli = try parseArgs(&args);
+    try std.testing.expectEqual(@as(f32, 0.0), cli.quality);
+}
+
+test "parseArgs: -q boundary 100 (valid)" {
+    const args = [_][]const u8{ "pict", "in.jpg", "out.webp", "-q", "100" };
+    const cli = try parseArgs(&args);
+    try std.testing.expectEqual(@as(f32, 100.0), cli.quality);
+}
+
+test "parseArgs: -q negative returns InvalidQuality" {
+    const args = [_][]const u8{ "pict", "in.jpg", "out.webp", "-q", "-1" };
+    try std.testing.expectError(error.InvalidQuality, parseArgs(&args));
+}
+
+test "parseArgs: -q over 100 returns InvalidQuality" {
+    const args = [_][]const u8{ "pict", "in.jpg", "out.webp", "-q", "101" };
+    try std.testing.expectError(error.InvalidQuality, parseArgs(&args));
+}
+
+test "parseArgs: -q NaN returns InvalidQuality" {
+    const args = [_][]const u8{ "pict", "in.jpg", "out.webp", "-q", "nan" };
+    try std.testing.expectError(error.InvalidQuality, parseArgs(&args));
+}
+
+test "parseArgs: too few arguments" {
+    const args = [_][]const u8{ "pict", "in.jpg" };
+    try std.testing.expectError(error.TooFewArguments, parseArgs(&args));
+}
+
+test "parseArgs: unknown argument" {
+    const args = [_][]const u8{ "pict", "in.jpg", "out.webp", "--unknown" };
+    try std.testing.expectError(error.UnknownArgument, parseArgs(&args));
+}
+
+test "parseArgs: missing value for -w" {
+    const args = [_][]const u8{ "pict", "in.jpg", "out.webp", "-w" };
+    try std.testing.expectError(error.MissingValue, parseArgs(&args));
+}
