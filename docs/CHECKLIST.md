@@ -401,7 +401,7 @@ zig llvm-nm -D zig-out/linux-x86_64/libpict.so | grep pict_encode_avif  # シン
 
 #### Step 3 — CI・ドキュメント ✅
 
-- [x] `.github/workflows/build-native.yml` に Deno テストステップ追加（`continue-on-error: true`）
+- [x] `.github/workflows/build-native.yml` に Deno テストステップ追加（CI グリーン確認後、`continue-on-error` 削除済み）
 - [x] README に Deno の install / run 例を追記
 - [x] 対応マトリクス（Node / Bun / Deno）を README に明示
 - [x] `package.json` に `exports["./deno"]` を追加（`npm:zigpix/deno` で解決可能）

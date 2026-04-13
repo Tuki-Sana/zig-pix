@@ -64,7 +64,6 @@ jobs:
           deno-version: v2.x
 
       - name: Run FFI tests (Deno)
-        continue-on-error: true
         run: deno run --allow-read --allow-ffi --allow-env test/ffi/test.deno.ts
 
       - name: Stage npm package files
@@ -134,7 +133,6 @@ jobs:
           deno-version: v2.x
 
       - name: Run FFI tests (Deno)
-        continue-on-error: true
         run: deno run --allow-read --allow-ffi --allow-env test/ffi/test.deno.ts
 
       - name: Stage npm package files
