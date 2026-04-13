@@ -9,15 +9,17 @@ const usage =
     \\Usage: pict [options] <input> <output>
     \\
     \\Options:
-    \\  -w, --width  <px>     出力幅 (省略時: アスペクト比維持)
-    \\  -h, --height <px>     出力高さ
-    \\  -q, --quality <0-100> WebP 品質 (デフォルト: 92)
-    \\  -t, --threads <n>     並列スレッド数 (0=自動, デフォルト: 1)
-    \\  --lossless            ロスレス出力
-    \\  --version             バージョンを表示
+    \\  -w, --width  <px>       出力幅 (省略時: アスペクト比維持)
+    \\  -h, --height <px>       出力高さ
+    \\  -q, --quality <0-100>   WebP / AVIF 品質 (デフォルト: 92 / 60)
+    \\  -t, --threads <n>       並列スレッド数 (0=自動, デフォルト: 1)
+    \\  --lossless              ロスレス出力 (WebP のみ)
+    \\  --avif-speed <0-10>     AVIF エンコーダスピード (デフォルト: 6)
+    \\  --version               バージョンを表示
     \\
     \\Examples:
     \\  pict illustration.png output.webp -w 1920
+    \\  pict illustration.png output.avif -w 1920 --avif-speed 10
     \\  pict portrait.jpg thumbnail.webp -w 400 -h 400 --threads 2
     \\
 ;
@@ -31,6 +33,8 @@ const CliArgs = struct {
     lossless: bool = false,
     /// 0 = CPU コア数を自動検出, 1 = シングルスレッド (デフォルト)
     threads: u32 = 1,
+    /// AVIF エンコーダスピード 0..10 (デフォルト: 6)
+    avif_speed: u8 = 6,
 };
 
 pub fn main() !void {
@@ -128,17 +132,29 @@ fn runPipeline(allocator: std.mem.Allocator, cli: CliArgs) !void {
         b.deinit();
     };
 
-    // ── WebP エンコード ───────────────────────────────────────────────────────
-    var encoder = pict.encode.webpEncoder();
+    // ── エンコード (出力フォーマット分岐) ──────────────────────────────────────
+    const out_ext = std.fs.path.extension(cli.output);
+    const is_avif = std.ascii.eqlIgnoreCase(out_ext, ".avif");
+
+    var encoder = if (is_avif) pict.encode.avifEncoder() else pict.encode.webpEncoder();
     defer encoder.deinit();
 
-    var encoded = try encoder.encode(out_buf, .{ .webp = .{
-        .quality  = cli.quality,
-        .lossless = cli.lossless,
-    } }, allocator);
+    const enc_opts: pict.encode.EncodeOptions = if (is_avif)
+        .{ .avif = .{
+            .quality = @intFromFloat(@round(@min(100.0, @max(0.0, cli.quality)))),
+            .speed   = cli.avif_speed,
+        } }
+    else
+        .{ .webp = .{
+            .quality  = cli.quality,
+            .lossless = cli.lossless,
+        } };
+
+    var encoded = try encoder.encode(out_buf, enc_opts, allocator);
     defer encoded.deinit();
 
-    std.log.info("Encoded: {} bytes WebP → {s}", .{ encoded.data.len, cli.output });
+    const fmt_name: []const u8 = if (is_avif) "AVIF" else "WebP";
+    std.log.info("Encoded: {} bytes {s} → {s}", .{ encoded.data.len, fmt_name, cli.output });
 
     // ── 出力ファイル書き込み ─────────────────────────────────────────────────
     try std.fs.cwd().writeFile(.{
@@ -215,6 +231,12 @@ fn parseArgs(args: []const []const u8) !CliArgs {
             i += 1;
             if (i >= args.len) return error.MissingValue;
             result.threads = try std.fmt.parseInt(u32, args[i], 10);
+        } else if (std.mem.eql(u8, arg, "--avif-speed")) {
+            i += 1;
+            if (i >= args.len) return error.MissingValue;
+            const s = try std.fmt.parseInt(u8, args[i], 10);
+            if (s > 10) return error.InvalidAvifSpeed;
+            result.avif_speed = s;
         } else {
             return error.UnknownArgument;
         }
@@ -323,5 +345,33 @@ test "parseArgs: --threads default is 1" {
 
 test "parseArgs: --threads missing value" {
     const args = [_][]const u8{ "pict", "in.jpg", "out.webp", "--threads" };
+    try std.testing.expectError(error.MissingValue, parseArgs(&args));
+}
+
+test "parseArgs: --avif-speed default is 6" {
+    const args = [_][]const u8{ "pict", "in.jpg", "out.avif" };
+    const cli = try parseArgs(&args);
+    try std.testing.expectEqual(@as(u8, 6), cli.avif_speed);
+}
+
+test "parseArgs: --avif-speed boundary 0 (valid)" {
+    const args = [_][]const u8{ "pict", "in.jpg", "out.avif", "--avif-speed", "0" };
+    const cli = try parseArgs(&args);
+    try std.testing.expectEqual(@as(u8, 0), cli.avif_speed);
+}
+
+test "parseArgs: --avif-speed boundary 10 (valid)" {
+    const args = [_][]const u8{ "pict", "in.jpg", "out.avif", "--avif-speed", "10" };
+    const cli = try parseArgs(&args);
+    try std.testing.expectEqual(@as(u8, 10), cli.avif_speed);
+}
+
+test "parseArgs: --avif-speed 11 returns InvalidAvifSpeed" {
+    const args = [_][]const u8{ "pict", "in.jpg", "out.avif", "--avif-speed", "11" };
+    try std.testing.expectError(error.InvalidAvifSpeed, parseArgs(&args));
+}
+
+test "parseArgs: --avif-speed missing value" {
+    const args = [_][]const u8{ "pict", "in.jpg", "out.avif", "--avif-speed" };
     try std.testing.expectError(error.MissingValue, parseArgs(&args));
 }

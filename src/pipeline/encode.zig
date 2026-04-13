@@ -11,7 +11,7 @@ const decode = @import("decode.zig");
 
 pub const OutputFormat = enum {
     webp,
-    // Phase 7: avif
+    avif,
 };
 
 pub const WebPOptions = struct {
@@ -23,8 +23,16 @@ pub const WebPOptions = struct {
     thread_level: u8 = 0,
 };
 
+pub const AvifOptions = struct {
+    /// 品質 0..100 (libavif 規約: 高いほど高品質。デフォルト: 60)
+    quality: u8 = 60,
+    /// エンコーダスピード 0..10 (10 = 最速 / 最低品質努力)
+    speed: u8 = 6,
+};
+
 pub const EncodeOptions = union(OutputFormat) {
     webp: WebPOptions,
+    avif: AvifOptions,
 };
 
 pub const EncodeError = error{
@@ -32,6 +40,7 @@ pub const EncodeError = error{
     UnsupportedFormat,
     InvalidInput,
     OutOfMemory,
+    AvifDisabled,
 };
 
 /// エンコード結果。`data` は allocator 管理。`deinit()` で解放。
@@ -171,6 +180,103 @@ pub fn webpEncoder() Encoder {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// libavif C bridge (extern 宣言)
+// has_avif=false のターゲット (unit_tests, ffi_lib 等) ではシンボル参照を
+// comptime で完全に除去することでリンクエラーを防ぐ。
+// ─────────────────────────────────────────────────────────────────────────────
+
+const has_avif = @import("avif_options").has_avif;
+
+const avif_c = if (has_avif) struct {
+    extern fn pict_avif_encode(
+        pixels: [*]const u8,
+        width: u32,
+        height: u32,
+        channels: c_int,
+        quality: c_int,
+        speed: c_int,
+        out_data: *[*]u8,
+        out_size: *usize,
+    ) c_int;
+    extern fn pict_avif_free(data: [*]u8) void;
+} else struct {};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AvifEncoder — libavif + aom を使う Encoder 実装
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// libavif で ImageBuffer を AVIF にエンコードする Encoder 実装。
+///
+/// - 入力は rgb8 (channels=3) または rgba8 (channels=4) を受け付ける。
+/// - has_avif=false のビルドでは encode() が error.AvifDisabled を返す。
+pub const AvifEncoder = struct {
+    pub const vtable = Encoder.VTable{
+        .encode = encodeImpl,
+        .deinit = deinitImpl,
+    };
+
+    fn encodeImpl(
+        ptr: *anyopaque,
+        image: decode.ImageBuffer,
+        options: EncodeOptions,
+        allocator: std.mem.Allocator,
+    ) EncodeError!EncodedBuffer {
+        _ = ptr;
+
+        if (comptime !has_avif) return EncodeError.AvifDisabled;
+
+        if (image.channels != 3 and image.channels != 4)
+            return EncodeError.InvalidInput;
+
+        const opts = options.avif;
+        var out_data: [*]u8 = undefined;
+        var out_size: usize = 0;
+
+        const result = avif_c.pict_avif_encode(
+            image.data.ptr,
+            image.width,
+            image.height,
+            @intCast(image.channels),
+            @intCast(opts.quality),
+            @intCast(opts.speed),
+            &out_data,
+            &out_size,
+        );
+
+        if (result != 0) return EncodeError.EncodingFailed;
+
+        const avif_slice = out_data[0..out_size];
+        defer avif_c.pict_avif_free(out_data);
+
+        const zig_buf = try allocator.alloc(u8, out_size);
+        errdefer allocator.free(zig_buf);
+        @memcpy(zig_buf, avif_slice);
+
+        return EncodedBuffer{
+            .format    = .avif,
+            .data      = zig_buf,
+            .allocator = allocator,
+        };
+    }
+
+    fn deinitImpl(ptr: *anyopaque) void {
+        _ = ptr;
+    }
+};
+
+/// libavif で ImageBuffer を AVIF にエンコードする Encoder を返す。
+/// has_avif=false のビルドでは encode() が error.AvifDisabled を返す。
+pub fn avifEncoder() Encoder {
+    const Anchor = struct {
+        var byte: u8 = 0;
+    };
+    return .{
+        .ptr = &Anchor.byte,
+        .vtable = &AvifEncoder.vtable,
+    };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // テスト
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -224,6 +330,30 @@ test "WebPEncoder: encode RGBA image (lossless)" {
     try std.testing.expectEqual(OutputFormat.webp, out.format);
     try std.testing.expect(out.data.len > 0);
     try std.testing.expectEqualSlices(u8, "RIFF", out.data[0..4]);
+}
+
+test "AvifEncoder: has_avif=false returns AvifDisabled" {
+    // has_avif=true のビルド (CLI/ffi_lib) ではこのテストをスキップする。
+    // has_avif=false (unit_tests) でのみ AvifDisabled 契約を検証する。
+    if (comptime has_avif) return error.SkipZigTest;
+
+    const W = 4;
+    const H = 4;
+    var pixels = [_]u8{128} ** (W * H * 4);
+    const img = decode.ImageBuffer{
+        .width     = W,
+        .height    = H,
+        .channels  = 4,
+        .format    = .rgba8,
+        .data      = &pixels,
+        .allocator = std.testing.allocator,
+    };
+
+    var enc = avifEncoder();
+    defer enc.deinit();
+
+    const result = enc.encode(img, .{ .avif = .{} }, std.testing.allocator);
+    try std.testing.expectError(EncodeError.AvifDisabled, result);
 }
 
 test "WebPEncoder: invalid channel count returns InvalidInput" {

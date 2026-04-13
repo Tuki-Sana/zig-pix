@@ -10,6 +10,8 @@ pub const decode = @import("pipeline/decode.zig");
 pub const encode = @import("pipeline/encode.zig");
 pub const resize = @import("pipeline/resize.zig");
 
+const has_avif = @import("avif_options").has_avif;
+
 // ── メモリ管理モジュール ───────────────────────────────────────────────────────
 pub const mem = struct {
     pub const ring = @import("mem/ring.zig");
@@ -47,6 +49,10 @@ pub const platform = @import("platform.zig");
 //   uint8_t* pict_encode_webp(const uint8_t* pixels,
 //                             uint32_t width, uint32_t height, uint8_t channels,
 //                             float quality, bool lossless,
+//                             size_t* out_len);
+//   uint8_t* pict_encode_avif(const uint8_t* pixels,
+//                             uint32_t width, uint32_t height, uint8_t channels,
+//                             uint8_t quality, uint8_t speed,
 //                             size_t* out_len);
 //   void pict_free_buffer(uint8_t* ptr, size_t len);
 // ─────────────────────────────────────────────────────────────────────────────
@@ -184,7 +190,49 @@ export fn pict_encode_webp(
     return ptr;
 }
 
-/// pict_decode / pict_decode_v2 / pict_resize / pict_encode_webp が返したバッファを解放する。
+/// ピクセルデータを AVIF にエンコードする。
+/// 成功時: AVIF バイト列 (pict_free_buffer(ptr, out_len) で解放)。
+/// 失敗時: null。out_len は変更しない。
+/// has_avif=false のビルド (Linux VPS 等) では常に null を返す。
+export fn pict_encode_avif(
+    pixels: [*c]const u8,
+    width: u32,
+    height: u32,
+    channels: u8,
+    quality: u8,
+    speed: u8,
+    out_len: ?*usize,
+) ?[*]u8 {
+    if (comptime !has_avif) return null;
+    if (pixels == null or out_len == null or width == 0 or height == 0 or channels == 0) return null;
+    if (channels != 3 and channels != 4) return null;
+    const pixel_size = mul3SizeChecked(width, height, channels) orelse return null;
+
+    const img = decode.ImageBuffer{
+        .width     = width,
+        .height    = height,
+        .channels  = channels,
+        .format    = if (channels == 4) .rgba8 else .rgb8,
+        .data      = @constCast(pixels[0..pixel_size]),
+        .allocator = ffi_alloc,
+    };
+
+    var enc = encode.avifEncoder();
+    defer enc.deinit();
+
+    var encoded = enc.encode(img, .{ .avif = .{
+        .quality = quality,
+        .speed   = speed,
+    } }, ffi_alloc) catch return null;
+
+    if (out_len) |ol| ol.* = encoded.data.len;
+    const p = encoded.data.ptr;
+    encoded.data = &[_]u8{};
+    return p;
+}
+
+/// pict_decode / pict_decode_v2 / pict_resize / pict_encode_webp / pict_encode_avif
+/// が返したバッファを解放する。
 export fn pict_free_buffer(ptr: [*]u8, len: usize) void {
     ffi_alloc.free(ptr[0..len]);
 }

@@ -30,6 +30,13 @@ pub fn build(b: *std.Build) void {
     const build_options = b.addOptions();
     build_options.addOption(bool, "simd_enabled", simd_enabled);
 
+    // ── AVIF オプション ────────────────────────────────────────────────────────
+    // has_avif=true は CLI 専用 (pict_mod_cli)。他の artifact はすべて false。
+    const no_avif_options = b.addOptions();
+    no_avif_options.addOption(bool, "has_avif", false);
+    const avif_options = b.addOptions();
+    avif_options.addOption(bool, "has_avif", true);
+
     // ── Cross-compile targets ─────────────────────────────────────────────────
     const linux_target = b.resolveTargetQuery(.{
         .cpu_arch = .x86_64,
@@ -50,6 +57,15 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/root.zig"),
     });
     pict_mod.addOptions("build_options", build_options);
+    pict_mod.addOptions("avif_options", no_avif_options);
+
+    // ── CLI 専用モジュール (has_avif=true) ────────────────────────────────────
+    // cli のみがこれを使う。他の artifact は pict_mod (has_avif=false) を使い続ける。
+    const pict_mod_cli = b.createModule(.{
+        .root_source_file = b.path("src/root.zig"),
+    });
+    pict_mod_cli.addOptions("build_options", build_options);
+    pict_mod_cli.addOptions("avif_options", avif_options);
 
     // ── Native CLI (dev: Mac ARM) ─────────────────────────────────────────────
     const cli = b.addExecutable(.{
@@ -58,8 +74,13 @@ pub fn build(b: *std.Build) void {
         .target = native_target,
         .optimize = optimize,
     });
-    cli.root_module.addImport("pict", pict_mod);
+    cli.root_module.addImport("pict", pict_mod_cli); // pict_mod_cli (has_avif=true)
     addCLibraries(b, cli);
+    addLibAvifSystem(b, cli);
+    cli.addCSourceFiles(.{
+        .files = &.{"src/c/avif_encode.c"},
+        .flags = &.{"-std=c11"},
+    });
     b.installArtifact(cli);
 
     const run_cmd = b.addRunArtifact(cli);
@@ -93,6 +114,7 @@ pub fn build(b: *std.Build) void {
     wasm_exe.rdynamic = true;
     wasm_exe.stack_size = 64 * 1024;
     wasm_exe.root_module.addOptions("build_options", build_options);
+    wasm_exe.root_module.addOptions("avif_options", no_avif_options);
 
     const wasm_step = b.step("wasm", "Build WebAssembly / WASI module");
     wasm_step.dependOn(&b.addInstallArtifact(wasm_exe, .{
@@ -100,6 +122,8 @@ pub fn build(b: *std.Build) void {
     }).step);
 
     // ── Shared library (FFI: Bun / Node.js) ───────────────────────────────────
+    // Phase 7B: Mac native lib は has_avif=true。pict_encode_avif を公開する。
+    // Linux cross-compile (ffi_lib_linux) は Phase 7C まで has_avif=false のまま。
     const ffi_lib = b.addSharedLibrary(.{
         .name = "pict",
         .root_source_file = b.path("src/root.zig"),
@@ -108,7 +132,13 @@ pub fn build(b: *std.Build) void {
     });
     ffi_lib.root_module.addImport("pict", pict_mod);
     ffi_lib.root_module.addOptions("build_options", build_options);
+    ffi_lib.root_module.addOptions("avif_options", avif_options); // has_avif=true
     addCLibraries(b, ffi_lib);
+    addLibAvifSystem(b, ffi_lib);
+    ffi_lib.addCSourceFiles(.{
+        .files = &.{"src/c/avif_encode.c"},
+        .flags = &.{"-std=c11"},
+    });
 
     const lib_step = b.step("lib", "Build shared library for FFI (.dylib/.so)");
     lib_step.dependOn(&b.addInstallArtifact(ffi_lib, .{
@@ -124,6 +154,7 @@ pub fn build(b: *std.Build) void {
     });
     ffi_lib_linux.root_module.addImport("pict", pict_mod);
     ffi_lib_linux.root_module.addOptions("build_options", build_options);
+    ffi_lib_linux.root_module.addOptions("avif_options", no_avif_options);
     addCLibraries(b, ffi_lib_linux);
 
     const lib_linux_step = b.step("lib-linux", "Cross-compile shared library for Linux x86_64 VPS (.so)");
@@ -140,6 +171,7 @@ pub fn build(b: *std.Build) void {
     });
     addCLibraries(b, unit_tests);
     unit_tests.root_module.addOptions("build_options", build_options);
+    unit_tests.root_module.addOptions("avif_options", no_avif_options);
 
     // CLI (main.zig) の parseArgs 等の純 Zig テストも同じステップで実行する。
     const cli_tests = b.addTest(.{
@@ -149,6 +181,7 @@ pub fn build(b: *std.Build) void {
     });
     cli_tests.root_module.addImport("pict", pict_mod);
     addCLibraries(b, cli_tests);
+    cli_tests.root_module.addOptions("avif_options", no_avif_options);
 
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&b.addRunArtifact(unit_tests).step);
@@ -689,4 +722,51 @@ fn addLibwebp(b: *std.Build, artifact: *std.Build.Step.Compile) void {
         });
     }
     // wasm32: SIMD は Phase 5 で追加。スカラー baseline のみで動作する。
+}
+
+// ── libavif system library (CLI + Mac native ffi_lib, Phase 7A/7B) ───────────
+// パス解決優先順位:
+//   1. pkg-config --cflags/--libs libavif が成功した場合はその出力を使用
+//   2. 失敗した場合は Homebrew 標準プレフィクス (/opt/homebrew) に fallback
+// brew upgrade 後もバージョン固定パスに依存しないよう symlink 経由で解決する。
+fn addLibAvifSystem(b: *std.Build, artifact: *std.Build.Step.Compile) void {
+    // pkg-config でインクルード/ライブラリパスを取得する。
+    // 取得できた場合は `-I<path>` / `-L<path>` をそれぞれ追加する。
+    // 取得できなかった場合は Homebrew prefix の symlink パスを使う。
+    const pkg_cflags = b.runAllowFail(
+        &.{ "pkg-config", "--cflags-only-I", "libavif" },
+        @constCast(&@as(u8, 0)),
+        .Ignore,
+    ) catch null;
+    const pkg_libs = b.runAllowFail(
+        &.{ "pkg-config", "--libs-only-L", "libavif" },
+        @constCast(&@as(u8, 0)),
+        .Ignore,
+    ) catch null;
+
+    if (pkg_cflags) |cflags| {
+        // "-I/path/to/include" を空白で分割して addSystemIncludePath に渡す
+        var it = std.mem.tokenizeScalar(u8, std.mem.trim(u8, cflags, " \n\r"), ' ');
+        while (it.next()) |token| {
+            if (std.mem.startsWith(u8, token, "-I")) {
+                artifact.addSystemIncludePath(.{ .cwd_relative = token[2..] });
+            }
+        }
+    } else {
+        artifact.addSystemIncludePath(.{ .cwd_relative = "/opt/homebrew/include" });
+    }
+
+    if (pkg_libs) |libs| {
+        var it = std.mem.tokenizeScalar(u8, std.mem.trim(u8, libs, " \n\r"), ' ');
+        while (it.next()) |token| {
+            if (std.mem.startsWith(u8, token, "-L")) {
+                artifact.addLibraryPath(.{ .cwd_relative = token[2..] });
+            }
+        }
+    } else {
+        artifact.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/lib" });
+    }
+
+    artifact.linkSystemLibrary("avif");
+    artifact.linkLibC();
 }
