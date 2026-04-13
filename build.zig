@@ -157,7 +157,7 @@ pub fn build(b: *std.Build) void {
     ffi_lib_linux.root_module.addOptions("avif_options", no_avif_options);
     addCLibraries(b, ffi_lib_linux);
 
-    const lib_linux_step = b.step("lib-linux", "Cross-compile shared library for Linux x86_64 VPS (.so)");
+    const lib_linux_step = b.step("lib-linux", "Cross-compile shared library for Linux x86_64 VPS (.so) [AVIF disabled; for AVIF FFI run 'zig build lib' natively on VPS]");
     lib_linux_step.dependOn(&b.addInstallArtifact(ffi_lib_linux, .{
         .dest_dir = .{ .override = .{ .custom = "linux-x86_64" } },
     }).step);
@@ -726,13 +726,16 @@ fn addLibwebp(b: *std.Build, artifact: *std.Build.Step.Compile) void {
 
 // ── libavif system library (CLI + Mac native ffi_lib, Phase 7A/7B) ───────────
 // パス解決優先順位:
-//   1. pkg-config --cflags/--libs libavif が成功した場合はその出力を使用
-//   2. 失敗した場合は Homebrew 標準プレフィクス (/opt/homebrew) に fallback
-// brew upgrade 後もバージョン固定パスに依存しないよう symlink 経由で解決する。
+//   1. pkg-config --cflags-only-I / --libs-only-L libavif が成功した場合はその出力を使用
+//   2. macOS のみ: 失敗時は Homebrew 標準プレフィクス (/opt/homebrew) に fallback
+//   3. Linux: pkg-config が必須。失敗時は b.fatal でビルドを停止する。
+//
+// 分岐は artifact の target OS で行う (ホスト OS ではない)。
+// ffi_lib_linux (linux_target) には呼ばれない設計 (has_avif=false のため)。
 fn addLibAvifSystem(b: *std.Build, artifact: *std.Build.Step.Compile) void {
-    // pkg-config でインクルード/ライブラリパスを取得する。
-    // 取得できた場合は `-I<path>` / `-L<path>` をそれぞれ追加する。
-    // 取得できなかった場合は Homebrew prefix の symlink パスを使う。
+    const target_os = artifact.rootModuleTarget().os.tag;
+    const is_macos  = target_os == .macos;
+
     const pkg_cflags = b.runAllowFail(
         &.{ "pkg-config", "--cflags-only-I", "libavif" },
         @constCast(&@as(u8, 0)),
@@ -744,26 +747,48 @@ fn addLibAvifSystem(b: *std.Build, artifact: *std.Build.Step.Compile) void {
         .Ignore,
     ) catch null;
 
+    // Linux: どちらか一方でも欠けたら即エラー終了
+    // (b.fatal は Zig 0.13.0 未収録のため stderr + exit を使う)
+    if (!is_macos and pkg_cflags == null) {
+        std.io.getStdErr().writer().print(
+            "error: libavif headers not found for target {s}.\n" ++
+            "  Install libavif development package and pkg-config\n" ++
+            "  (e.g. apt install libavif-dev pkg-config)\n",
+            .{@tagName(target_os)},
+        ) catch {};
+        std.process.exit(1);
+    }
+    if (!is_macos and pkg_libs == null) {
+        std.io.getStdErr().writer().print(
+            "error: libavif library path not found for target {s}.\n" ++
+            "  Install libavif development package and pkg-config\n" ++
+            "  (e.g. apt install libavif-dev pkg-config)\n",
+            .{@tagName(target_os)},
+        ) catch {};
+        std.process.exit(1);
+    }
+
+    // インクルードパス解決
     if (pkg_cflags) |cflags| {
-        // "-I/path/to/include" を空白で分割して addSystemIncludePath に渡す
         var it = std.mem.tokenizeScalar(u8, std.mem.trim(u8, cflags, " \n\r"), ' ');
         while (it.next()) |token| {
-            if (std.mem.startsWith(u8, token, "-I")) {
+            if (std.mem.startsWith(u8, token, "-I"))
                 artifact.addSystemIncludePath(.{ .cwd_relative = token[2..] });
-            }
         }
     } else {
+        // macOS のみ Homebrew fallback (Apple Silicon 前提)
         artifact.addSystemIncludePath(.{ .cwd_relative = "/opt/homebrew/include" });
     }
 
+    // ライブラリパス解決
     if (pkg_libs) |libs| {
         var it = std.mem.tokenizeScalar(u8, std.mem.trim(u8, libs, " \n\r"), ' ');
         while (it.next()) |token| {
-            if (std.mem.startsWith(u8, token, "-L")) {
+            if (std.mem.startsWith(u8, token, "-L"))
                 artifact.addLibraryPath(.{ .cwd_relative = token[2..] });
-            }
         }
     } else {
+        // macOS のみ Homebrew fallback (Apple Silicon 前提)
         artifact.addLibraryPath(.{ .cwd_relative = "/opt/homebrew/lib" });
     }
 

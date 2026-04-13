@@ -86,3 +86,83 @@ zig build wasm
 - panic/abort より recoverable error を優先する
 - API 仕様とコメントを必ず一致させる
 - 境界条件（入力長、channel 数、flush 条件）のテストを先に置く
+
+## 6) system library 依存（AVIF）
+
+`libavif` は vendor 管理ではなく **system library** として扱う。  
+`zig build lib` / `zig build` 実行環境に事前インストールが必要。
+
+### Mac (Apple Silicon)
+
+```bash
+brew install libavif
+pkg-config --cflags libavif   # 確認: -I/... が出力されること
+pkg-config --libs libavif     # 確認: -L/... -lavif が出力されること
+```
+
+`addLibAvifSystem` は pkg-config 優先で、失敗時は `/opt/homebrew/include` / `/opt/homebrew/lib` に fallback する。
+
+### Linux VPS (Ubuntu / Debian 系)
+
+```bash
+apt install libavif-dev pkg-config
+pkg-config --cflags libavif   # 確認
+pkg-config --libs libavif     # 確認
+```
+
+Linux では pkg-config が必須。インストールされていない場合はビルドが次のメッセージで停止する:
+
+```
+error: libavif headers not found for target linux.
+Install libavif development package and pkg-config
+(e.g. apt install libavif-dev pkg-config)
+```
+
+### AVIF 対応の build ターゲット別まとめ
+
+| コマンド | 実行場所 | AVIF 有効 | 用途 |
+|---------|---------|-----------|------|
+| `zig build` | Mac | ✅ | CLI dev binary |
+| `zig build lib` | Mac | ✅ | Mac 向け libpict.dylib |
+| `zig build lib` | VPS | ✅ | Linux 向け libpict.so **← AVIF FFI はここ** |
+| `zig build lib-linux` | Mac | ❌ | Linux 向けクロスコンパイル (AVIF 無効) |
+| `zig build linux` | Mac | ❌ | Linux CLI クロスコンパイル |
+
+**重要**: Linux で AVIF FFI を使う場合は、必ず VPS 上で `zig build lib` をネイティブ実行すること。  
+Mac からのクロスコンパイル (`zig build lib-linux`) では AVIF は無効のままとなる。
+
+## 7) FFI テスト手順
+
+### Mac
+
+```bash
+bash test/ffi/run.sh   # zig build lib + bun run test/ffi/test.ts
+```
+
+期待出力: `All 6 tests passed.` (Case A〜F)
+
+### Linux VPS
+
+```bash
+# 前提: libavif-dev インストール済み
+zig build lib -Doptimize=ReleaseFast
+
+# libavif.so が動的解決されていることを確認
+ldd zig-out/lib/libpict.so | grep avif
+
+# FFI 統合テスト
+bun run test/ffi/test.ts
+```
+
+期待出力:
+- `ldd` に `libavif.so.*` が表示される
+- `All 6 tests passed.` (Case E が null ではなく ftyp 検証を通ること)
+
+### lib-linux の回帰確認 (Mac 上)
+
+```bash
+zig build lib-linux
+
+# pict_encode_avif シンボルが存在することを確認 (AVIF 無効でも ABI 互換シンボルとして存在)
+zig llvm-nm -D zig-out/linux-x86_64/libpict.so | grep pict_encode_avif
+```
