@@ -353,7 +353,10 @@ zig llvm-nm -D zig-out/linux-x86_64/libpict.so | grep pict_encode_avif  # シン
 #### Step 4 — 仕上げ
 
 - [x] `THIRD_PARTY_LICENSES` に libaom v3.12.1 (10aece41) / libavif v1.4.1 (6543b22b) の正確なバージョン・SHA を記載
-- [ ] `npm 0.1.0` で publish（静的リンク版として初の minor バージョン）
+- [x] `npm 0.1.0` で publish 完了
+  - `zigpix@0.1.0` / `zigpix-darwin-arm64@0.1.0` / `zigpix-linux-x64@0.1.0`
+  - `apt install libavif-dev` 不要化達成
+  - `npm install zigpix` だけで AVIF エンコードが動く状態を実現
 
 ---
 
