@@ -414,6 +414,17 @@ zig llvm-nm -D zig-out/linux-x86_64/libpict.so | grep pict_encode_avif  # シン
 - [x] CI Linux x64 / macOS arm64: 両ジョブ Success（`continue-on-error` 削除後も安定）
 - [x] `zigpix@0.1.1` npm publish — `./deno` export 含む版としてリリース
 
+#### 0.1.2 修正 ✅
+
+- [x] 問題: `exports["./deno"]` が `.ts` を指していたため、`node_modules` 内で `ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING` が発生
+- [x] 修正: `esbuild` で `index.deno.ts` → `js/dist/index.deno.js` にトランスパイル（型除去のみ）
+- [x] `package.json` `exports["./deno"]` を `./js/dist/index.deno.js` に変更
+- [x] `npm run build` スクリプトに `esbuild` ステップを追加
+- [x] `zigpix@0.1.2` npm publish — `./deno` を JS ファイルとして配布
+- [x] Linux x64 VPS で `npm install zigpix@0.1.2` + 本番パス確認: **ALL PASS**
+
+**Phase 8C 完全クローズ** — Node / Bun / Deno 三ランタイム対応完了
+
 ---
 
 ## 非機能 / 運用
