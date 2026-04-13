@@ -44,6 +44,9 @@ jobs:
       - name: Install Node.js deps (zigpix + sharp)
         run: npm install && npm install sharp
 
+      - name: Build JS wrapper (js/dist/)
+        run: npm run build
+
       - name: Run benchmark (zigpix vs sharp)
         run: npx tsx bench/bench.ts
 
