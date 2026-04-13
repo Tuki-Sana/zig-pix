@@ -25,11 +25,27 @@
 - [x] CLI パイプライン — detect → decode → Lanczos-3 resize → encode → write (`main.zig`)
 - [x] セキュリティ修正 — overflow guard (w×ch, h×row_stride, png_mem_read/write), quality 範囲チェック
 - [x] JPEG/PNG/WebP 単体テスト計 10 件
-- [ ] `parseArgs` ユニットテスト (-q 境界値など) ← **次タスク**
+- [x] `parseArgs` ユニットテスト (-q 境界値 12 件)
 
 ---
 
 ## Phase 3 — SIMD 最適化
+
+### Phase 3A — SIMD トグル scaffold ✅
+
+- [x] `-Dsimd` ビルドオプション追加 (`build.zig`)
+- [x] `build_options` モジュールを pict_mod / unit_tests / ffi_lib / wasm_exe に伝播
+- [x] `hPassRow` / `vPassFull` を comptime dispatcher + scalar + stub に分割 (`resize.zig`)
+- [x] `simd_enabled` 定数を公開、scaffold テスト 2 件追加
+
+### Phase 3B — Zig SIMD 実装 (H-pass 完了 / V-pass 未着手)
+
+- [x] `hPassRowSimd`: `@Vector(4, f32)` で 4ch 並列 H-pass 実装 ← **今回完了**
+- [x] H-pass 正確性テスト 3 件 (scalar vs SIMD ±1.0 以内、ch=3 フォールバック)
+- [ ] `vPassFullSimd`: V-pass SIMD 実装 (スタブ → 実装) ← **次タスク**
+- [ ] V-pass 正確性テスト追加
+
+### Phase 3C — C vendor SIMD 有効化 (未着手)
 
 - [ ] libjpeg-turbo `WITH_SIMD` 有効化 (ARM NEON / x86 SSE2, `build.zig`)
 - [ ] libpng `PNG_ARM_NEON_OPT` / `PNG_INTEL_SSE_OPT` 有効化
