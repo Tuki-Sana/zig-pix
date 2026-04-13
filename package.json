@@ -1,6 +1,6 @@
 {
   "name": "zigpix",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "High-performance image processing engine (Zig + libavif). Faster AVIF encoding than Sharp.",
   "type": "module",
   "main": "js/dist/index.js",
@@ -10,17 +10,16 @@
       "types": "./js/dist/index.d.ts",
       "import": "./js/dist/index.js"
     },
-    "./deno": "./js/src/index.deno.ts"
+    "./deno": "./js/dist/index.deno.js"
   },
   "files": [
     "js/dist",
-    "js/src/index.deno.ts",
     "README.md",
     "LICENSE",
     "THIRD_PARTY_LICENSES"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && npx esbuild js/src/index.deno.ts --bundle=false --platform=neutral --format=esm --outfile=js/dist/index.deno.js",
     "prepublishOnly": "npm run build",
     "test:bun": "bash test/ffi/run.sh",
     "test:node": "bash test/ffi/run.node.sh"
@@ -40,8 +39,8 @@
     "url": "https://github.com/Tuki-Sana/zig-pix.git"
   },
   "optionalDependencies": {
-    "zigpix-darwin-arm64": "0.1.1",
-    "zigpix-linux-x64": "0.1.1"
+    "zigpix-darwin-arm64": "0.1.2",
+    "zigpix-linux-x64": "0.1.2"
   },
   "dependencies": {
     "koffi": "^2.9.0"
