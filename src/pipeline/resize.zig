@@ -144,6 +144,13 @@ pub fn resizeLanczos3(
     if (config.channels == 0 or config.channels > 4) return ResizeError.UnsupportedChannelCount;
 
     const sw = config.src_width;
+    // バッファ長の事前検証 (FFI 経由でも安全に失敗させる)
+    {
+        const expected_src = @as(usize, config.src_height) * config.src_width * config.channels;
+        const expected_dst = @as(usize, config.dst_height) * config.dst_width * config.channels;
+        if (src_data.len < expected_src) return ResizeError.InvalidInputDimensions;
+        if (dst_data.len < expected_dst) return ResizeError.InvalidInputDimensions;
+    }
     const sh = config.src_height;
     const dw = config.dst_width;
     const dh = config.dst_height;
@@ -282,7 +289,7 @@ pub const StreamingResizer = struct {
 
     /// 1 行分のソースデータを受け取り、準備できた出力行を sink に書き出す。
     /// src_row の長さは src_width * channels でなければならない。
-    pub fn feedRow(self: *StreamingResizer, src_row: []const u8, sink: RowSink) ResizeError!void {
+    pub fn feedRow(self: *StreamingResizer, src_row: []const u8, sink: RowSink) !void {
         if (src_row.len != @as(usize, self.config.src_width) * self.config.channels)
             return ResizeError.InvalidInputDimensions;
 
@@ -295,7 +302,7 @@ pub const StreamingResizer = struct {
 
     /// 全ソース行を受け取った後、残りの出力行を sink に書き出す。
     /// src_height 回 feedRow を呼んでから呼ぶ。
-    pub fn flush(self: *StreamingResizer, sink: RowSink) ResizeError!void {
+    pub fn flush(self: *StreamingResizer, sink: RowSink) !void {
         if (self.src_rows_fed != self.config.src_height)
             return ResizeError.IncompleteInput;
         while (self.dst_rows_emitted < self.config.dst_height) {
@@ -310,7 +317,7 @@ pub const StreamingResizer = struct {
 
     // ── 内部実装 ──────────────────────────────────────────────────────────────
 
-    fn emitReady(self: *StreamingResizer, sink: RowSink) ResizeError!void {
+    fn emitReady(self: *StreamingResizer, sink: RowSink) !void {
         const sh_i64: i64 = @intCast(self.config.src_height);
         while (self.dst_rows_emitted < self.config.dst_height) {
             const dy = self.dst_rows_emitted;
@@ -325,7 +332,7 @@ pub const StreamingResizer = struct {
         }
     }
 
-    fn emitRow(self: *StreamingResizer, dy: u32, sink: RowSink) ResizeError!void {
+    fn emitRow(self: *StreamingResizer, dy: u32, sink: RowSink) !void {
         const dw = self.config.dst_width;
         const ch = self.config.channels;
         const sh = self.config.src_height;
@@ -361,7 +368,7 @@ pub const StreamingResizer = struct {
             }
         }
 
-        sink.writeRow(self.out_row_buf, dy) catch return ResizeError.OutOfMemory;
+        try sink.writeRow(self.out_row_buf, dy);
     }
 };
 
@@ -406,6 +413,26 @@ test "resizeLanczos3: 均一色は拡大縮小後も保存" {
     for (0..4) |i| try std.testing.expectApproxEqAbs(
         @as(f32, @floatFromInt(src[i])), @as(f32, @floatFromInt(dst[i])), 2.0,
     );
+}
+
+test "resizeLanczos3: src_data 短すぎ → InvalidInputDimensions" {
+    var dst = [_]u8{0} ** 4;
+    try std.testing.expectError(ResizeError.InvalidInputDimensions, resizeLanczos3(
+        std.testing.allocator,
+        &[_]u8{ 0, 1, 2 }, // 4 bytes 必要なのに 3 bytes
+        &dst,
+        .{ .src_width = 1, .src_height = 1, .dst_width = 1, .dst_height = 1 },
+    ));
+}
+
+test "resizeLanczos3: dst_data 短すぎ → InvalidInputDimensions" {
+    var dst = [_]u8{ 0, 0 }; // 4 bytes 必要なのに 2 bytes
+    try std.testing.expectError(ResizeError.InvalidInputDimensions, resizeLanczos3(
+        std.testing.allocator,
+        &[_]u8{ 0, 0, 0, 0 },
+        &dst,
+        .{ .src_width = 1, .src_height = 1, .dst_width = 1, .dst_height = 1 },
+    ));
 }
 
 test "resizeLanczos3: channels=5 は UnsupportedChannelCount" {
