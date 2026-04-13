@@ -1,13 +1,15 @@
-/// test/bench/main.zig — リサイズ性能ベンチマーク
+/// test/bench/main.zig — リサイズ性能ベンチマーク (Phase 4: マルチスレッド対応)
 ///
-/// zig build bench              → SIMD off (default)
-/// zig build bench -Dsimd=true  → SIMD on
+/// zig build bench                        → SIMD=off, threads=1
+/// zig build bench -Dsimd=true            → SIMD=on,  threads=1
+/// zig build bench -- --threads 2         → SIMD=off, threads=2
+/// zig build bench -Dsimd=true -- --threads 2 → SIMD=on, threads=2
 ///
 /// 計測項目:
-///   1. lanczosKernel マイクロベンチ (10M 呼び出し)
+///   1. lanczosKernel マイクロベンチ
 ///   2. resizeLanczos3 フルフレーム (1920×1080 → 640×360, RGBA)
 ///   3. StreamingResizer   (同サイズ, RGBA)
-///   4. resizeLanczos3 フルフレーム (1920×1080 → 640×360, RGB, ch=3 fallback 確認)
+///   4. resizeLanczos3 フルフレーム (1920×1080 → 640×360, RGB, ch=3 fallback)
 
 const std = @import("std");
 const pict = @import("pict");
@@ -19,16 +21,35 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const alloc = gpa.allocator();
 
+    // --threads <n> の解析 (0=自動, デフォルト=1)
+    var n_threads: u32 = 1;
+    var args_iter = try std.process.argsWithAllocator(alloc);
+    defer args_iter.deinit();
+    _ = args_iter.next(); // argv[0]
+    while (args_iter.next()) |arg| {
+        if (std.mem.eql(u8, arg, "--threads")) {
+            if (args_iter.next()) |val| {
+                n_threads = try std.fmt.parseInt(u32, val, 10);
+                if (n_threads == 0) {
+                    n_threads = @intCast(@max(1, std.Thread.getCpuCount() catch 1));
+                }
+            }
+        }
+    }
+
     const stdout = std.io.getStdOut().writer();
 
     const simd_label = if (resize.simd_enabled) "SIMD=on " else "SIMD=off";
-    try stdout.print("pict-zig-engine benchmarks  [{s}]\n", .{simd_label});
-    try stdout.writeAll("==========================================\n\n");
+    try stdout.print(
+        "pict-zig-engine benchmarks  [{s}  threads={d}]\n",
+        .{ simd_label, n_threads },
+    );
+    try stdout.writeAll("=============================================\n\n");
 
     try benchLanczosKernel(stdout);
-    try benchFullFrame(alloc, stdout, 1920, 1080, 640, 360, 4, "RGBA 1920×1080→640×360");
+    try benchFullFrame(alloc, stdout, 1920, 1080, 640, 360, 4, n_threads, "RGBA 1920×1080→640×360");
     try benchStreaming(alloc, stdout, 1920, 1080, 640, 360, 4, "RGBA 1920×1080→640×360 (streaming)");
-    try benchFullFrame(alloc, stdout, 1920, 1080, 640, 360, 3, "RGB  1920×1080→640×360 (ch=3 fallback)");
+    try benchFullFrame(alloc, stdout, 1920, 1080, 640, 360, 3, n_threads, "RGB  1920×1080→640×360 (ch=3 fallback)");
 }
 
 // ─── マイクロベンチ ──────────────────────────────────────────────────────────
@@ -60,6 +81,7 @@ fn benchFullFrame(
     dw: u32,
     dh: u32,
     ch: u8,
+    n_threads: u32,
     label: []const u8,
 ) !void {
     const src_len = @as(usize, sw) * sh * ch;
@@ -70,35 +92,32 @@ fn benchFullFrame(
     const dst = try alloc.alloc(u8, dst_len);
     defer alloc.free(dst);
 
-    // 疑似画像データ (グラデーション)
     for (src, 0..) |*p, i| p.* = @intCast(i % 251);
 
-    // ウォームアップ
-    try resize.resizeLanczos3(alloc, src, dst, .{
+    const cfg = resize.ResizeConfig{
         .src_width = sw, .src_height = sh,
         .dst_width = dw, .dst_height = dh,
-        .channels = ch,
-    });
+        .channels = ch, .n_threads = n_threads,
+    };
+
+    // ウォームアップ
+    try resize.resizeLanczos3(alloc, src, dst, cfg);
 
     // 計測
     const RUNS = 5;
     const t0 = std.time.nanoTimestamp();
     for (0..RUNS) |_| {
-        try resize.resizeLanczos3(alloc, src, dst, .{
-            .src_width = sw, .src_height = sh,
-            .dst_width = dw, .dst_height = dh,
-            .channels = ch,
-        });
+        try resize.resizeLanczos3(alloc, src, dst, cfg);
     }
     const elapsed_ms = @as(f64, @floatFromInt(std.time.nanoTimestamp() - t0)) / 1_000_000.0;
 
     try out.print(
-        "{s:<42} {d:>7.1} ms/frame  (avg of {d})\n",
+        "{s:<44} {d:>7.1} ms/frame  (avg of {d})\n",
         .{ label, elapsed_ms / RUNS, RUNS },
     );
 }
 
-// ─── ストリーミングリサイザー ────────────────────────────────────────────────
+// ─── ストリーミングリサイザー (シングルスレッド) ─────────────────────────────
 
 fn benchStreaming(
     alloc: std.mem.Allocator,
@@ -126,19 +145,17 @@ fn benchStreaming(
         .channels = ch,
     };
 
-    // ウォームアップ
-    try runStreaming(alloc, src, dst, sw, sh, dw, dh, ch, cfg);
+    try runStreaming(alloc, src, dst, sw, sh, dw, ch, cfg);
 
-    // 計測
     const RUNS = 5;
     const t0 = std.time.nanoTimestamp();
     for (0..RUNS) |_| {
-        try runStreaming(alloc, src, dst, sw, sh, dw, dh, ch, cfg);
+        try runStreaming(alloc, src, dst, sw, sh, dw, ch, cfg);
     }
     const elapsed_ms = @as(f64, @floatFromInt(std.time.nanoTimestamp() - t0)) / 1_000_000.0;
 
     try out.print(
-        "{s:<42} {d:>7.1} ms/frame  (avg of {d})\n",
+        "{s:<44} {d:>7.1} ms/frame  (avg of {d})\n",
         .{ label, elapsed_ms / RUNS, RUNS },
     );
 }
@@ -150,7 +167,6 @@ fn runStreaming(
     sw: u32,
     sh: u32,
     dw: u32,
-    _: u32,
     ch: u8,
     cfg: resize.ResizeConfig,
 ) !void {

@@ -146,8 +146,10 @@ pub fn build(b: *std.Build) void {
     });
     bench_exe.root_module.addImport("pict", pict_mod);
 
-    const bench_step = b.step("bench", "Run benchmarks");
-    bench_step.dependOn(&b.addRunArtifact(bench_exe).step);
+    const bench_run = b.addRunArtifact(bench_exe);
+    if (b.args) |args| bench_run.addArgs(args);
+    const bench_step = b.step("bench", "Run benchmarks (pass args after --: zig build bench -- --threads 2)");
+    bench_step.dependOn(&bench_run.step);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

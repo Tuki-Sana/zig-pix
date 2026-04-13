@@ -12,12 +12,13 @@ const usage =
     \\  -w, --width  <px>     出力幅 (省略時: アスペクト比維持)
     \\  -h, --height <px>     出力高さ
     \\  -q, --quality <0-100> WebP 品質 (デフォルト: 92)
+    \\  -t, --threads <n>     並列スレッド数 (0=自動, デフォルト: 1)
     \\  --lossless            ロスレス出力
     \\  --version             バージョンを表示
     \\
     \\Examples:
     \\  pict illustration.png output.webp -w 1920
-    \\  pict portrait.jpg thumbnail.webp -w 400 -h 400
+    \\  pict portrait.jpg thumbnail.webp -w 400 -h 400 --threads 2
     \\
 ;
 
@@ -28,6 +29,8 @@ const CliArgs = struct {
     height: ?u32 = null,
     quality: f32 = 92.0,
     lossless: bool = false,
+    /// 0 = CPU コア数を自動検出, 1 = シングルスレッド (デフォルト)
+    threads: u32 = 1,
 };
 
 pub fn main() !void {
@@ -107,6 +110,7 @@ fn runPipeline(allocator: std.mem.Allocator, cli: CliArgs) !void {
             .dst_width  = dst_w,
             .dst_height = dst_h,
             .channels   = src_buf.channels,
+            .n_threads  = cli.threads,
         });
 
         break :blk pict.decode.ImageBuffer{
@@ -207,6 +211,10 @@ fn parseArgs(args: []const []const u8) !CliArgs {
             result.quality = q;
         } else if (std.mem.eql(u8, arg, "--lossless")) {
             result.lossless = true;
+        } else if (std.mem.eql(u8, arg, "-t") or std.mem.eql(u8, arg, "--threads")) {
+            i += 1;
+            if (i >= args.len) return error.MissingValue;
+            result.threads = try std.fmt.parseInt(u32, args[i], 10);
         } else {
             return error.UnknownArgument;
         }

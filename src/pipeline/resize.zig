@@ -20,6 +20,10 @@ pub const simd_enabled: bool = build_options.simd_enabled;
 
 pub const LANCZOS_A: f32 = 3.0;
 
+/// V-pass を並列化する最小行数。小画像ではスレッドオーバーヘッドの方が大きいため、
+/// dh がこの値未満のときはシングルスレッドにフォールバックする。
+const MIN_PARALLEL_ROWS: u32 = 64;
+
 /// channels は 1–4 をサポート (sum バッファ上限 = 4)
 pub const ResizeConfig = struct {
     src_width: u32,
@@ -28,6 +32,8 @@ pub const ResizeConfig = struct {
     dst_height: u32,
     /// サポート値: 1 (Gray), 2 (Gray+A), 3 (RGB), 4 (RGBA)
     channels: u8 = 4,
+    /// V-pass 並列スレッド数。1 = シングルスレッド (デフォルト)、0 = CPU コア数で自動設定。
+    n_threads: u32 = 1,
 };
 
 pub const ResizeError = error{
@@ -242,7 +248,21 @@ pub fn resizeLanczos3(
             sw, ch, scale_x,
         );
     }
-    vPassFull(inter, dst_data, sh, dh, dw, ch, scale_y);
+
+    // V-pass: n_threads > 1 かつ dh が閾値以上のとき並列化する。
+    // それ以外は既存シングルスレッドパスにフォールバック。
+    const n_threads = blk: {
+        if (config.n_threads == 0) {
+            // 0 = 自動: CPU コア数を使用
+            break :blk @as(u32, @intCast(@max(1, std.Thread.getCpuCount() catch 1)));
+        }
+        break :blk config.n_threads;
+    };
+    if (n_threads > 1 and dh >= MIN_PARALLEL_ROWS) {
+        try vPassFullParallel(allocator, inter, dst_data, sh, dh, dw, ch, scale_y, n_threads);
+    } else {
+        vPassFull(inter, dst_data, sh, dh, dw, ch, scale_y);
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -277,6 +297,89 @@ const RingSource = struct {
         return self.ring.getRow(sy);
     }
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// V-pass 並列化 (Phase 4)
+//
+// V-pass の dy ループは各行が独立しているため、ThreadPool で行チャンクを分割できる。
+// InterSource は const (読み取り専用)、dst の各行は排他スライスで書き込み競合なし。
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// 1 チャンクの V-pass 処理タスク (ThreadPool から呼ばれる)。
+const VPassChunk = struct {
+    src: InterSource,
+    dst: []u8,
+    dy_start: u32,
+    dy_end: u32, // exclusive
+    sh: u32,
+    dw: u32,
+    ch: u8,
+    scale_y: f32,
+    support: f32,
+    row_stride: usize,
+
+    fn run(self: *VPassChunk) void {
+        for (self.dy_start..self.dy_end) |dy| {
+            const row_out = self.dst[dy * self.row_stride .. (dy + 1) * self.row_stride];
+            if (comptime simd_enabled) {
+                vPassOneDyRowSimd(
+                    self.src, row_out, @intCast(dy),
+                    self.sh, self.dw, self.ch, self.scale_y, self.support,
+                ) catch unreachable; // InterSource は常に非 null
+            } else {
+                vPassOneDyRowScalar(
+                    self.src, row_out, @intCast(dy),
+                    self.sh, self.dw, self.ch, self.scale_y, self.support,
+                ) catch unreachable;
+            }
+        }
+    }
+};
+
+/// V-pass の dy 行を n_threads チャンクに分割して並列実行する。
+/// `pool.waitAndWork` によりメインスレッドも作業に参加し、スレッド数 = n_threads を活用する。
+fn vPassFullParallel(
+    alloc: std.mem.Allocator,
+    inter: []const f32,
+    dst: []u8,
+    sh: u32,
+    dh: u32,
+    dw: u32,
+    ch: u8,
+    scale_y: f32,
+    n_threads: u32,
+) ResizeError!void {
+    const support = LANCZOS_A / @min(scale_y, 1.0);
+    const row_stride = @as(usize, dw) * ch;
+    const src = InterSource{ .inter = inter, .row_stride = row_stride };
+
+    const n_chunks = @min(n_threads, dh);
+    const chunks = alloc.alloc(VPassChunk, n_chunks) catch return ResizeError.OutOfMemory;
+    defer alloc.free(chunks);
+
+    const rows_per_chunk = dh / n_chunks;
+    for (chunks, 0..) |*chunk, i| {
+        const dy_start = @as(u32, @intCast(i)) * rows_per_chunk;
+        const dy_end = if (i == n_chunks - 1) dh else dy_start + rows_per_chunk;
+        chunk.* = .{
+            .src = src, .dst = dst,
+            .dy_start = dy_start, .dy_end = dy_end,
+            .sh = sh, .dw = dw, .ch = ch,
+            .scale_y = scale_y, .support = support,
+            .row_stride = row_stride,
+        };
+    }
+
+    var pool: std.Thread.Pool = undefined;
+    pool.init(.{ .allocator = alloc, .n_jobs = n_threads }) catch return ResizeError.OutOfMemory;
+    defer pool.deinit();
+
+    var wg = std.Thread.WaitGroup{};
+    for (chunks) |*chunk| {
+        pool.spawnWg(&wg, VPassChunk.run, .{chunk});
+    }
+    pool.waitAndWork(&wg);
+}
 
 /// V-pass ディスパッチャ: comptime simd_enabled で SIMD / スカラーを切り替える。
 fn vPassFull(inter: []const f32, dst: []u8, sh: u32, dh: u32, dw: u32, ch: u8, scale_y: f32) void {
