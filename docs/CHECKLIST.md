@@ -144,5 +144,5 @@ macOS では多コアにより効果が小さめ、2コア VPS では full-frame
 
 - [ ] E2E テスト自動化 (`build.zig` に `zig build e2e` ステップ)
 - [ ] メモリピーク計測・Sharp との比較
-- [ ] Linux VPS クロスコンパイル動作確認 (`zig build linux`)
+- [x] Linux VPS クロスコンパイル動作確認 (`zig build linux`) — Phase 4 で確認済み
 - [ ] `docs/operations.md` 更新 (Phase 2 完了時点の手順)

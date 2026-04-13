@@ -28,11 +28,13 @@ pub fn main() !void {
     _ = args_iter.next(); // argv[0]
     while (args_iter.next()) |arg| {
         if (std.mem.eql(u8, arg, "--threads")) {
-            if (args_iter.next()) |val| {
-                n_threads = try std.fmt.parseInt(u32, val, 10);
-                if (n_threads == 0) {
-                    n_threads = @intCast(@max(1, std.Thread.getCpuCount() catch 1));
-                }
+            const val = args_iter.next() orelse {
+                try std.io.getStdErr().writer().writeAll("bench: --threads requires a value\n");
+                std.process.exit(1);
+            };
+            n_threads = try std.fmt.parseInt(u32, val, 10);
+            if (n_threads == 0) {
+                n_threads = @intCast(@max(1, std.Thread.getCpuCount() catch 1));
             }
         }
     }

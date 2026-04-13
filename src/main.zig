@@ -296,3 +296,32 @@ test "parseArgs: missing value for -w" {
     const args = [_][]const u8{ "pict", "in.jpg", "out.webp", "-w" };
     try std.testing.expectError(error.MissingValue, parseArgs(&args));
 }
+
+test "parseArgs: --threads 2 (explicit)" {
+    const args = [_][]const u8{ "pict", "in.jpg", "out.webp", "--threads", "2" };
+    const cli = try parseArgs(&args);
+    try std.testing.expectEqual(@as(u32, 2), cli.threads);
+}
+
+test "parseArgs: --threads 0 (auto)" {
+    const args = [_][]const u8{ "pict", "in.jpg", "out.webp", "--threads", "0" };
+    const cli = try parseArgs(&args);
+    try std.testing.expectEqual(@as(u32, 0), cli.threads);
+}
+
+test "parseArgs: -t shorthand for --threads" {
+    const args = [_][]const u8{ "pict", "in.jpg", "out.webp", "-t", "4" };
+    const cli = try parseArgs(&args);
+    try std.testing.expectEqual(@as(u32, 4), cli.threads);
+}
+
+test "parseArgs: --threads default is 1" {
+    const args = [_][]const u8{ "pict", "in.jpg", "out.webp" };
+    const cli = try parseArgs(&args);
+    try std.testing.expectEqual(@as(u32, 1), cli.threads);
+}
+
+test "parseArgs: --threads missing value" {
+    const args = [_][]const u8{ "pict", "in.jpg", "out.webp", "--threads" };
+    try std.testing.expectError(error.MissingValue, parseArgs(&args));
+}
