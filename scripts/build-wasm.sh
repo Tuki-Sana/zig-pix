@@ -205,15 +205,24 @@ COMMON_FLAGS=(
     -s ASSERTIONS=0
 )
 
+# Output filenames: SIMD build uses avif.simd.{js,wasm} to coexist with baseline
+if [[ $SIMD -eq 1 ]]; then
+    BROWSER_OUT="$OUT_DIR/avif.simd.js"
+    NODE_OUT="$OUT_DIR/avif.simd.node.js"
+else
+    BROWSER_OUT="$OUT_DIR/avif.js"
+    NODE_OUT="$OUT_DIR/avif.node.js"
+fi
+
 # Browser / Cloudflare Pages build (web + worker)
 emcc "${COMMON_FLAGS[@]}" \
     -s ENVIRONMENT='web,worker' \
-    -o "$OUT_DIR/avif.js"
+    -o "$BROWSER_OUT"
 
 # Node.js test build (node + web + worker)
 emcc "${COMMON_FLAGS[@]}" \
     -s ENVIRONMENT='node,web,worker' \
-    -o "$OUT_DIR/avif.node.js"
+    -o "$NODE_OUT"
 
 ok "WASM build complete!"
 echo ""
@@ -221,17 +230,17 @@ echo ""
 # ---------------------------------------------------------------------------
 # Stats
 # ---------------------------------------------------------------------------
-WASM_FILE="$OUT_DIR/avif.wasm"
-JS_FILE="$OUT_DIR/avif.js"
+WASM_FILE="${BROWSER_OUT%.js}.wasm"
+JS_FILE="$BROWSER_OUT"
 
 if [[ -f "$WASM_FILE" ]]; then
     WASM_SIZE=$(wc -c < "$WASM_FILE")
     WASM_GZ=$(gzip -c "$WASM_FILE" | wc -c)
-    ok "avif.wasm  raw=$(( WASM_SIZE / 1024 ))KB  gzip=$(( WASM_GZ / 1024 ))KB"
+    ok "$(basename "$WASM_FILE")  raw=$(( WASM_SIZE / 1024 ))KB  gzip=$(( WASM_GZ / 1024 ))KB"
 fi
 if [[ -f "$JS_FILE" ]]; then
     JS_SIZE=$(wc -c < "$JS_FILE")
-    ok "avif.js    raw=$(( JS_SIZE / 1024 ))KB"
+    ok "$(basename "$JS_FILE")    raw=$(( JS_SIZE / 1024 ))KB"
 fi
 
 echo ""

@@ -2,152 +2,361 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>pict-zig-engine WASM — AVIF encode test</title>
+  <title>pict-zig-engine WASM — AVIF benchmark</title>
   <style>
-    body { font-family: monospace; max-width: 800px; margin: 2rem auto; padding: 0 1rem; }
-    h1 { font-size: 1.2rem; }
-    #log { background: #111; color: #0f0; padding: 1rem; white-space: pre; overflow: auto; min-height: 10rem; border-radius: 4px; }
-    .ok  { color: #0f0; }
-    .err { color: #f44; }
-    .info { color: #aaa; }
-    canvas { border: 1px solid #aaa; margin: 0.5rem 0; }
-    img { max-width: 256px; border: 1px solid #aaa; }
-    #controls { margin: 1rem 0; }
-    input[type=range] { width: 200px; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: monospace; max-width: 900px; margin: 2rem auto; padding: 0 1rem; background: #0d0d0d; color: #d4d4d4; }
+    h1 { font-size: 1.1rem; color: #fff; margin-bottom: 1.2rem; }
+    h2 { font-size: 0.85rem; color: #888; margin: 1.2rem 0 0.4rem; text-transform: uppercase; letter-spacing: 0.05em; }
+
+    #controls { display: flex; flex-wrap: wrap; gap: 0.8rem; align-items: center; margin-bottom: 1rem; }
+    label { font-size: 0.85rem; color: #aaa; }
+    select, button { background: #1e1e1e; color: #d4d4d4; border: 1px solid #444; border-radius: 3px; padding: 0.3rem 0.6rem; font-family: monospace; font-size: 0.85rem; cursor: pointer; }
+    button:hover { border-color: #888; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    #runBtn { background: #1a3a1a; border-color: #3a7a3a; color: #8fbc8f; padding: 0.3rem 1.2rem; }
+    #runBtn:hover:not(:disabled) { background: #1f4a1f; }
+
+    /* Result table */
+    table { width: 100%; border-collapse: collapse; font-size: 0.82rem; margin-top: 0.6rem; }
+    th { background: #1a1a1a; color: #888; padding: 0.4rem 0.6rem; text-align: left; border-bottom: 1px solid #333; }
+    td { padding: 0.35rem 0.6rem; border-bottom: 1px solid #222; }
+    .ok   { color: #6dbf6d; }
+    .warn { color: #d4a843; }
+    .err  { color: #e05252; }
+    .dim  { color: #555; }
+    .speedup { font-weight: bold; }
+    .speedup.good { color: #6dbf6d; }
+    .speedup.neutral { color: #888; }
+
+    /* Log */
+    #log { background: #111; border: 1px solid #222; padding: 0.8rem; white-space: pre; overflow: auto; max-height: 14rem; font-size: 0.78rem; line-height: 1.5; border-radius: 3px; margin-top: 1rem; }
+    .log-ok   { color: #6dbf6d; }
+    .log-err  { color: #e05252; }
+    .log-info { color: #666; }
+
+    /* Preview */
+    #previews { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 0.8rem; align-items: flex-start; }
+    .preview-box { text-align: center; font-size: 0.75rem; color: #555; }
+    .preview-box canvas, .preview-box img { display: block; max-width: 128px; max-height: 128px; border: 1px solid #333; }
+
+    /* Module status */
+    #modStatus { display: flex; gap: 1.5rem; font-size: 0.8rem; margin-bottom: 0.8rem; }
+    .mod-badge { padding: 0.2rem 0.6rem; border-radius: 2px; }
+    .mod-ok   { background: #0e2a0e; color: #6dbf6d; border: 1px solid #2a5a2a; }
+    .mod-fail { background: #2a0e0e; color: #e05252; border: 1px solid #5a2a2a; }
+    .mod-wait { background: #1a1a1a; color: #666; border: 1px solid #333; }
   </style>
 </head>
 <body>
-<h1>pict-zig-engine WASM — AVIF encode test</h1>
+<h1>pict-zig-engine WASM — AVIF benchmark (SIMD vs baseline)</h1>
+
+<h2>Module status</h2>
+<div id="modStatus">
+  <span id="badgeBase" class="mod-badge mod-wait">baseline: loading…</span>
+  <span id="badgeSimd" class="mod-badge mod-wait">SIMD: loading…</span>
+</div>
 
 <div id="controls">
-  <label>Quality: <input type="range" id="quality" min="0" max="100" value="60"> <span id="qval">60</span></label><br><br>
-  <label>Speed:   <input type="range" id="speed"   min="0" max="10"  value="10"> <span id="sval">10</span></label><br><br>
-  <button id="runBtn">Run Test (256×256 gradient)</button>
+  <label>Size:
+    <select id="sizeSelect">
+      <option value="64">64 × 64</option>
+      <option value="256" selected>256 × 256</option>
+      <option value="512">512 × 512</option>
+      <option value="1024">1024 × 1024</option>
+    </select>
+  </label>
+  <label>Quality:
+    <select id="quality">
+      <option value="60" selected>60</option>
+      <option value="80">80</option>
+      <option value="40">40</option>
+    </select>
+  </label>
+  <label>Channels:
+    <select id="channels">
+      <option value="4" selected>RGBA (4ch)</option>
+      <option value="3">RGB (3ch)</option>
+    </select>
+  </label>
+  <button id="runBtn" disabled>Loading…</button>
 </div>
 
-<div>
-  <canvas id="src" width="256" height="256"></canvas>
-  <span> → </span>
-  <img id="result" alt="AVIF result">
+<h2>Results (warm-up ×1 excluded · 3 runs · median)</h2>
+<table id="resultTable">
+  <thead>
+    <tr>
+      <th>Size</th>
+      <th>Channels</th>
+      <th>Baseline (ms)</th>
+      <th>SIMD (ms)</th>
+      <th>Speedup</th>
+      <th>Output (KB)</th>
+    </tr>
+  </thead>
+  <tbody id="resultBody">
+    <tr><td colspan="6" class="dim">— run benchmark to see results —</td></tr>
+  </tbody>
+</table>
+
+<h2>Preview (last run)</h2>
+<div id="previews">
+  <div class="preview-box">
+    <canvas id="srcCanvas"></canvas>
+    <div>source (canvas)</div>
+  </div>
+  <div class="preview-box">
+    <img id="resultImg" alt="">
+    <div id="resultLabel">—</div>
+  </div>
 </div>
 
-<div id="log">Loading WASM module...</div>
+<h2>Log</h2>
+<div id="log"></div>
 
 <script type="module">
-  const log = document.getElementById('log');
-  const srcCanvas = document.getElementById('src');
-  const resultImg = document.getElementById('result');
+// ---------------------------------------------------------------------------
+// Logging
+// ---------------------------------------------------------------------------
+const logEl = document.getElementById('log');
+function log(cls, msg) {
+  logEl.innerHTML += `<span class="log-${cls}">${msg}</span>\n`;
+  logEl.scrollTop = logEl.scrollHeight;
+}
+const info = m => log('info', m);
+const ok   = m => log('ok',   '[ OK ] ' + m);
+const fail = m => log('err',  '[ERR] ' + m);
 
-  function write(cls, msg) {
-    log.innerHTML += `<span class="${cls}">${msg}</span>\n`;
-    log.scrollTop = log.scrollHeight;
-  }
-  function info(msg)  { write('info', '[INFO] ' + msg); }
-  function ok(msg)    { write('ok',   '[ OK ] ' + msg); }
-  function fail(msg)  { write('err',  '[FAIL] ' + msg); }
+// ---------------------------------------------------------------------------
+// Load both modules concurrently
+// ---------------------------------------------------------------------------
+let modBase = null;
+let modSimd = null;
 
-  // Range slider display
-  const quality = document.getElementById('quality');
-  const speed   = document.getElementById('speed');
-  quality.oninput = () => document.getElementById('qval').textContent = quality.value;
-  speed.oninput   = () => document.getElementById('sval').textContent = speed.value;
-
-  // -------------------------------------------------------------------------
-  // Load Emscripten module
-  // -------------------------------------------------------------------------
-  let Module;
-  log.textContent = '';
-
-  info('Loading avif.js + avif.wasm ...');
+async function loadModule(url, label, badgeId) {
+  const badge = document.getElementById(badgeId);
   try {
-    const factory = (await import('./dist/avif.js')).default;
-    Module = await factory();
-    ok(`WASM module loaded`);
-    const verPtr = Module._avif_version();
-    const heap = Module.HEAPU8;
-    let end = verPtr;
-    while (heap[end]) end++;
-    const version = new TextDecoder().decode(heap.subarray(verPtr, end));
-    ok(`libavif version: ${version}`);
+    info(`Loading ${label} from ${url} …`);
+    const factory = (await import(url)).default;
+    const mod = await factory();
+    badge.textContent = `${label}: ready ✓`;
+    badge.className = 'mod-badge mod-ok';
+    ok(`${label} loaded (libavif ${readVersion(mod)})`);
+    return mod;
   } catch (e) {
-    fail('Failed to load WASM: ' + e.message);
-    throw e;
+    badge.textContent = `${label}: unsupported ✗`;
+    badge.className = 'mod-badge mod-fail';
+    fail(`${label} failed to load: ${e.message}`);
+    return null;
+  }
+}
+
+function readVersion(mod) {
+  const heap = mod.HEAPU8;
+  let ptr = mod._avif_version(), end = ptr;
+  while (heap[end]) end++;
+  return new TextDecoder().decode(heap.subarray(ptr, end));
+}
+
+// Load both in parallel
+const [base, simd] = await Promise.all([
+  loadModule('./dist/avif.js',      'baseline', 'badgeBase'),
+  loadModule('./dist/avif.simd.js', 'SIMD',     'badgeSimd'),
+]);
+modBase = base;
+modSimd = simd;
+
+const btn = document.getElementById('runBtn');
+if (modBase) {
+  btn.disabled = false;
+  btn.textContent = 'Run Benchmark';
+} else {
+  btn.textContent = 'Error (baseline required)';
+  fail('baseline module is required to run benchmarks.');
+}
+
+// ---------------------------------------------------------------------------
+// Pixel generation — deterministic gradient (same seed per size)
+// ---------------------------------------------------------------------------
+function makePixels(w, h, channels) {
+  const buf = new Uint8Array(w * h * channels);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * channels;
+      // Deterministic gradient — same pattern regardless of runtime timing
+      buf[i]     = (x * 255 / (w - 1)) | 0;            // R
+      buf[i + 1] = (y * 255 / (h - 1)) | 0;            // G
+      buf[i + 2] = ((x + y) * 255 / (w + h - 2)) | 0;  // B
+      if (channels === 4) buf[i + 3] = 255;             // A
+    }
+  }
+  return buf;
+}
+
+// Draw on canvas for preview
+function drawPreview(pixels, w, h, channels) {
+  const canvas = document.getElementById('srcCanvas');
+  const size = Math.min(128, w);
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  const id = ctx.createImageData(size, size);
+  const scale = w / size;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const sx = (x * scale) | 0;
+      const sy = (y * scale) | 0;
+      const src = ((sy * w + sx) * channels) | 0;
+      const dst = (y * size + x) * 4;
+      id.data[dst]     = pixels[src];
+      id.data[dst + 1] = pixels[src + 1];
+      id.data[dst + 2] = pixels[src + 2];
+      id.data[dst + 3] = 255;
+    }
+  }
+  ctx.putImageData(id, 0, 0);
+}
+
+// ---------------------------------------------------------------------------
+// Single encode + timing
+// ---------------------------------------------------------------------------
+function encode(mod, pixels, w, h, channels, quality) {
+  const ptr = mod._malloc(pixels.length);
+  if (!ptr) return null;
+  mod.HEAPU8.set(pixels, ptr);
+
+  const t0 = performance.now();
+  const outPtr = mod._avif_encode(ptr, w, h, channels, quality, 10);
+  const elapsed = performance.now() - t0;
+  mod._free(ptr);
+
+  if (!outPtr) return { ms: elapsed, bytes: null };
+
+  const size = mod._avif_get_out_size();
+  const avif = mod.HEAPU8.slice(outPtr, outPtr + size);
+  mod._avif_free_output(outPtr);
+  return { ms: elapsed, bytes: avif };
+}
+
+// Median of array
+function median(arr) {
+  const s = [...arr].sort((a, b) => a - b);
+  return s[Math.floor(s.length / 2)];
+}
+
+// Run warm-up + N timed runs, return median ms and last avif bytes
+function benchmark(mod, pixels, w, h, channels, quality, runs = 3) {
+  // warm-up (excluded from results)
+  encode(mod, pixels, w, h, channels, quality);
+
+  const times = [];
+  let lastAvif = null;
+  for (let i = 0; i < runs; i++) {
+    const r = encode(mod, pixels, w, h, channels, quality);
+    if (r) { times.push(r.ms); lastAvif = r.bytes; }
+  }
+  return { ms: median(times), bytes: lastAvif };
+}
+
+// ---------------------------------------------------------------------------
+// Run button
+// ---------------------------------------------------------------------------
+btn.addEventListener('click', async () => {
+  btn.disabled = true;
+  btn.textContent = 'Running…';
+  document.getElementById('resultImg').src = '';
+  document.getElementById('resultLabel').textContent = '—';
+
+  const w        = parseInt(document.getElementById('sizeSelect').value);
+  const h        = w;
+  const quality  = parseInt(document.getElementById('quality').value);
+  const channels = parseInt(document.getElementById('channels').value);
+  const chLabel  = channels === 4 ? 'RGBA' : 'RGB';
+
+  info(`\nBenchmarking ${w}×${h} ${chLabel} quality=${quality} speed=10`);
+  info(`warm-up ×1 excluded, 3 runs, median`);
+
+  const pixels = makePixels(w, h, channels);
+  drawPreview(pixels, w, h, channels);
+
+  // Baseline
+  let baseMs = null, baseBytes = null;
+  if (modBase) {
+    info(`Running baseline…`);
+    const r = benchmark(modBase, pixels, w, h, channels, quality);
+    baseMs = r.ms;
+    baseBytes = r.bytes;
+    ok(`baseline: ${baseMs.toFixed(1)} ms  →  ${baseBytes ? (baseBytes.length / 1024).toFixed(1) + ' KB' : 'FAILED'}`);
   }
 
-  // -------------------------------------------------------------------------
-  // Draw a test pattern on the canvas
-  // -------------------------------------------------------------------------
-  const ctx = srcCanvas.getContext('2d');
-  const W = 256, H = 256;
-  const imgData = ctx.createImageData(W, H);
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
-      const i = (y * W + x) * 4;
-      imgData.data[i]     = x;            // R
-      imgData.data[i + 1] = y;            // G
-      imgData.data[i + 2] = (x + y) & 255; // B
-      imgData.data[i + 3] = 255;          // A
-    }
+  // SIMD
+  let simdMs = null, simdBytes = null;
+  if (modSimd) {
+    info(`Running SIMD…`);
+    const r = benchmark(modSimd, pixels, w, h, channels, quality);
+    simdMs = r.ms;
+    simdBytes = r.bytes;
+    ok(`SIMD:     ${simdMs.toFixed(1)} ms`);
+  } else {
+    info(`SIMD module not available — skipped`);
   }
-  ctx.putImageData(imgData, 0, 0);
-  info('Test pattern drawn on canvas (256×256 RGBA)');
 
-  // -------------------------------------------------------------------------
-  // Run encode test
-  // -------------------------------------------------------------------------
-  document.getElementById('runBtn').addEventListener('click', () => {
-    const q = parseInt(quality.value);
-    const s = parseInt(speed.value);
+  // Speedup
+  let speedupText = '—';
+  let speedupClass = 'neutral';
+  if (baseMs !== null && simdMs !== null) {
+    const ratio = baseMs / simdMs;
+    speedupText = ratio.toFixed(2) + '×';
+    speedupClass = ratio >= 1.1 ? 'good' : 'neutral';
+    ok(`speedup: ${speedupText}`);
+  }
 
-    info(`Encoding... quality=${q} speed=${s}`);
-    resultImg.src = '';
+  // ftyp check
+  const checkBytes = simdBytes ?? baseBytes;
+  if (checkBytes) {
+    const brand = new TextDecoder().decode(checkBytes.subarray(8, 12));
+    const valid = brand === 'avif' || brand === 'avis';
+    if (valid) ok(`ftyp brand: "${brand}" ✓`);
+    else       fail(`ftyp brand: "${brand}" — unexpected`);
+  }
 
-    const pixels = imgData.data;  // Uint8ClampedArray, 4 channels
-    const channels = 4;
+  // Add row to table
+  const tbody = document.getElementById('resultBody');
+  if (tbody.querySelector('.dim')) tbody.innerHTML = '';
 
-    // Copy pixels into WASM heap
-    const inputPtr = Module._malloc(pixels.length);
-    if (!inputPtr) { fail('malloc failed'); return; }
-    Module.HEAPU8.set(pixels, inputPtr);
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td>${w}×${h}</td>
+    <td>${chLabel}</td>
+    <td class="${baseMs !== null ? 'ok' : 'err'}">${baseMs !== null ? baseMs.toFixed(1) : 'FAIL'}</td>
+    <td class="${simdMs !== null ? 'ok' : (modSimd ? 'err' : 'dim')}">${
+      simdMs !== null ? simdMs.toFixed(1) : (modSimd ? 'FAIL' : 'n/a')}</td>
+    <td class="speedup ${speedupClass}">${speedupText}</td>
+    <td class="${checkBytes ? '' : 'dim'}">${checkBytes ? (checkBytes.length / 1024).toFixed(1) : '—'}</td>
+  `;
+  tbody.appendChild(tr);
 
-    const t0 = performance.now();
-    const outPtr = Module._avif_encode(inputPtr, W, H, channels, q, s);
-    const elapsed = (performance.now() - t0).toFixed(1);
-    Module._free(inputPtr);
-
-    if (!outPtr) {
-      fail('avif_encode returned NULL');
-      return;
-    }
-
-    const outSize = Module._avif_get_out_size();
-    const avifBytes = Module.HEAPU8.slice(outPtr, outPtr + outSize);
-    Module._avif_free_output(outPtr);
-
-    ok(`Encoded in ${elapsed} ms — ${outSize} bytes (${(outSize/1024).toFixed(1)} KB)`);
-
-    // Verify ftyp header
-    const header = avifBytes.subarray(0, 12);
-    const brand = new TextDecoder().decode(header.subarray(8, 12));
-    if (brand === 'avif' || brand === 'avis') {
-      ok(`ftyp brand: "${brand}" ✓`);
-    } else {
-      fail(`ftyp brand: "${brand}" — unexpected`);
-    }
-
-    // Display result
-    const blob = new Blob([avifBytes], { type: 'image/avif' });
-    const url  = URL.createObjectURL(blob);
-    resultImg.onload = () => {
-      ok('Browser decoded AVIF successfully ✓');
+  // Preview AVIF
+  if (checkBytes) {
+    const blob = new Blob([checkBytes], { type: 'image/avif' });
+    const url = URL.createObjectURL(blob);
+    const img = document.getElementById('resultImg');
+    img.onload = () => {
+      ok(`browser decoded AVIF ✓`);
       URL.revokeObjectURL(url);
     };
-    resultImg.onerror = () => {
-      fail('Browser could not decode AVIF (browser may not support AVIF, but encoding succeeded)');
+    img.onerror = () => {
+      info(`browser could not render AVIF (encoding still succeeded)`);
       URL.revokeObjectURL(url);
     };
-    resultImg.src = url;
-  });
+    img.src = url;
+    document.getElementById('resultLabel').textContent =
+      `AVIF ${(checkBytes.length / 1024).toFixed(1)} KB`;
+  }
+
+  btn.disabled = false;
+  btn.textContent = 'Run Benchmark';
+});
 </script>
 </body>
 </html>
