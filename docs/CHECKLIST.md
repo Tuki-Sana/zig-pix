@@ -277,7 +277,7 @@ zig llvm-nm -D zig-out/linux-x86_64/libpict.so | grep pict_encode_avif  # シン
   - Case A〜G (8件) を Node.js で実行。koffi.decode() でポインタ読み出し
 - [x] `test/ffi/run.node.sh` 作成 — `npm install + zig build lib + npx tsx` を実行
 - [x] Mac (Apple Silicon) で `npx tsx test/ffi/test.node.ts` → 全 8 件 PASS 確認
-- [ ] Linux VPS で全 8 件 PASS 確認
+- [x] Linux VPS (x86_64) で `npx tsx test/ffi/test.node.ts` → 全 8 件 PASS 確認 (Case E ftyp 検証通過)
 
 ### Phase 8B — npm パッケージ配布 (pre-built native binary)
 
