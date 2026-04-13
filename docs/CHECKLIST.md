@@ -362,8 +362,49 @@ zig llvm-nm -D zig-out/linux-x86_64/libpict.so | grep pict_encode_avif  # シン
 
 ### Phase 8C — Deno 対応（任意）
 
-- [ ] `Deno.dlopen` バインディングの作成
-- [ ] `deno run test/ffi/test.deno.ts` で Case A〜G PASS 確認
+**目的**: Node/Bun に加えて Deno でも同一の公開API（decode / resize / encodeWebP / encodeAvif）を提供する。
+
+**完了条件**:
+- `deno run --allow-read --allow-ffi test/ffi/test.deno.ts` で Case A/B/C/G PASS
+- encodeAvif の null 条件が Node/Bun 版と完全一致
+- CI Deno ジョブが常時グリーン（初期は allow-failure 可）
+
+**切り戻し条件**: Step 0 PoC で koffi 案が失敗したら迷わず Deno.dlopen（案A）へ切替
+
+#### Step 0 — npm:koffi PoC（捨てPoC）✅
+
+- [x] `import koffi from "npm:koffi"` が成功
+- [x] `koffi.load("...libpict.so|dylib")` が成功
+- [x] `pict_decode_v2` 1回呼び出し → **Check3 失敗**（out-pointer が Deno で動作しない）
+- → 案B 不採用、即 Deno.dlopen（案A）へ切替
+
+#### Step 1 — index.deno.ts 実装（Deno.dlopen 案A）✅
+
+対象 FFI 関数（5つ全て必須）:
+- [x] `pict_decode_v2` — JPEG/PNG → raw pixels
+- [x] `pict_resize` — Lanczos-3 リサイズ
+- [x] `pict_encode_webp` — WebP エンコード
+- [x] `pict_encode_avif` — AVIF エンコード
+- [x] `pict_free_buffer` — **内部必須**（ネイティブメモリ解放）
+
+実装:
+- [x] `Deno.dlopen` で上記5関数を定義（型は Deno FFI 型に変換）
+- [x] `Deno.UnsafePointerView` でポインタ→Uint8Array 変換（`koffi.decode()` 相当）
+- [x] `resolveLibPath()` を Node/Deno 共通化（`node:module` の `createRequire` 活用）
+- [x] encodeAvif の null 条件（quality 0–100 / speed 0–10）が Node/Bun 版と一致
+
+#### Step 2 — テスト追加 ✅
+
+- [x] `test/ffi/test.deno.ts` 作成（Case A/B/C/E/G の計6件）
+- [x] `deno run --allow-read --allow-ffi --allow-env test/ffi/test.deno.ts` で全件 PASS
+
+#### Step 3 — CI・ドキュメント ✅
+
+- [x] `.github/workflows/build-native.yml` に Deno テストステップ追加（`continue-on-error: true`）
+- [x] README に Deno の install / run 例を追記
+- [x] 対応マトリクス（Node / Bun / Deno）を README に明示
+- [x] `package.json` に `exports["./deno"]` を追加（`npm:zigpix/deno` で解決可能）
+- [x] THIRD_PARTY_LICENSES に変更なし（静的リンクライブラリは変更なし）
 
 ---
 

@@ -58,6 +58,15 @@ jobs:
       - name: Run FFI tests (Node.js / koffi)
         run: npx tsx test/ffi/test.node.ts
 
+      - name: Install Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Run FFI tests (Deno)
+        continue-on-error: true
+        run: deno run --allow-read --allow-ffi --allow-env test/ffi/test.deno.ts
+
       - name: Stage npm package files
         run: |
           cp zig-out/lib/libpict.so npm/zigpix-linux-x64/
@@ -118,6 +127,15 @@ jobs:
 
       - name: Run FFI tests (Node.js / koffi)
         run: npx tsx test/ffi/test.node.ts
+
+      - name: Install Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Run FFI tests (Deno)
+        continue-on-error: true
+        run: deno run --allow-read --allow-ffi --allow-env test/ffi/test.deno.ts
 
       - name: Stage npm package files
         run: |

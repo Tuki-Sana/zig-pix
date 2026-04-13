@@ -9,10 +9,12 @@
     ".": {
       "types": "./js/dist/index.d.ts",
       "import": "./js/dist/index.js"
-    }
+    },
+    "./deno": "./js/src/index.deno.ts"
   },
   "files": [
     "js/dist",
+    "js/src/index.deno.ts",
     "README.md",
     "LICENSE",
     "THIRD_PARTY_LICENSES"
