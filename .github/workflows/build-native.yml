@@ -1,0 +1,83 @@
+name: Build native binaries
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  # ── Linux x86_64 ─────────────────────────────────────────────────────────
+  build-linux-x64:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Zig 0.13.0
+        uses: mlugg/setup-zig@v1
+        with:
+          version: 0.13.0
+
+      - name: Install libavif + pkgconf
+        run: sudo apt-get install -y libavif-dev pkgconf
+
+      - name: Build libpict.so
+        run: zig build lib -Doptimize=ReleaseFast
+
+      - name: Verify libavif linkage
+        run: ldd zig-out/lib/libpict.so | grep avif
+
+      - name: Install Node.js deps
+        run: npm install
+
+      - name: Run FFI tests (Bun)
+        uses: oven-sh/setup-bun@v2
+        # Bun テストは別ステップで実行
+      - run: bun run test/ffi/test.ts
+
+      - name: Run FFI tests (Node.js / koffi)
+        run: npx tsx test/ffi/test.node.ts
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libpict-linux-x64
+          path: zig-out/lib/libpict.so
+
+  # ── macOS arm64 (Apple Silicon) ───────────────────────────────────────────
+  build-darwin-arm64:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Zig 0.13.0
+        uses: mlugg/setup-zig@v1
+        with:
+          version: 0.13.0
+
+      - name: Install libavif
+        run: brew install libavif
+
+      - name: Build libpict.dylib
+        run: zig build lib -Doptimize=ReleaseFast
+
+      - name: Install Node.js deps
+        run: npm install
+
+      - name: Run FFI tests (Bun)
+        uses: oven-sh/setup-bun@v2
+      - run: bun run test/ffi/test.ts
+
+      - name: Run FFI tests (Node.js / koffi)
+        run: npx tsx test/ffi/test.node.ts
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libpict-darwin-arm64
+          path: zig-out/lib/libpict.dylib

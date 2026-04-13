@@ -3,17 +3,48 @@
   "version": "0.0.1",
   "description": "High-performance image processing engine (Zig + libavif). Faster AVIF encoding than Sharp.",
   "type": "module",
+  "main": "js/dist/index.js",
+  "types": "js/dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./js/dist/index.d.ts",
+      "import": "./js/dist/index.js"
+    }
+  },
+  "files": [
+    "js/dist",
+    "npm"
+  ],
   "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build",
     "test:bun": "bash test/ffi/run.sh",
     "test:node": "bash test/ffi/run.node.sh"
   },
-  "keywords": ["avif", "webp", "image", "resize", "zig", "native"],
+  "keywords": [
+    "avif",
+    "webp",
+    "image",
+    "resize",
+    "zig",
+    "native"
+  ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Tuki-Sana/zig-pix.git"
+  },
+  "optionalDependencies": {
+    "zigpix-darwin-arm64": "0.0.1",
+    "zigpix-linux-x64": "0.0.1"
+  },
   "dependencies": {
     "koffi": "^2.9.0"
   },
   "devDependencies": {
-    "tsx": "^4.19.0"
+    "@types/node": "^25.6.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0"
   },
   "engines": {
     "node": ">=18.0.0"

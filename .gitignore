@@ -8,6 +8,7 @@ dist/
 # Node.js
 node_modules/
 package-lock.json
+js/dist/
 
 # OS
 .DS_Store

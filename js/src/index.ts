@@ -1,0 +1,225 @@
+/**
+ * zigpix — High-performance image processing (Zig-powered native binding)
+ *
+ * Supported operations:
+ *   decode()     — JPEG / PNG → raw pixels
+ *   resize()     — Lanczos-3 high-quality resize
+ *   encodeWebP() — WebP encode (lossy / lossless)
+ *   encodeAvif() — AVIF encode (requires libavif on the system)
+ *
+ * Memory model:
+ *   All returned Buffers are independently owned by Node.js GC.
+ *   The native Zig allocations are freed before returning.
+ *
+ * AVIF note:
+ *   AVIF encoding requires libavif to be installed on the system.
+ *   Mac: brew install libavif
+ *   Linux: apt install libavif-dev
+ *   encodeAvif() returns null if AVIF is unavailable in this build.
+ */
+
+import koffi from "koffi";
+import { platform, arch } from "os";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
+import { createRequire } from "module";
+
+// ── Library loading ───────────────────────────────────────────────────────────
+
+function resolveLibPath(): string {
+  const plat = platform();
+  const cpu = arch();
+  const ext = plat === "darwin" ? "dylib" : "so";
+  const pkgName = `zigpix-${plat}-${cpu === "arm64" ? "arm64" : "x64"}`;
+
+  try {
+    // Production: loaded from optional npm platform package
+    const req = createRequire(import.meta.url);
+    const pkgRoot = dirname(req.resolve(`${pkgName}/package.json`));
+    return join(pkgRoot, `libpict.${ext}`);
+  } catch {
+    // Development fallback: local zig-out from source build
+    const __dirname = dirname(fileURLToPath(import.meta.url));
+    return join(__dirname, `../../zig-out/lib/libpict.${ext}`);
+  }
+}
+
+const _lib = koffi.load(resolveLibPath());
+
+// ── FFI bindings (internal) ───────────────────────────────────────────────────
+
+const _decode_v2 = _lib.func(
+  "uint8 *pict_decode_v2(const uint8 *data, uint64 len, uint32 *out_w, uint32 *out_h, uint8 *out_ch, uint64 *out_len)"
+);
+
+const _resize = _lib.func(
+  "uint8 *pict_resize(const uint8 *src, uint32 src_w, uint32 src_h, uint8 channels, uint32 dst_w, uint32 dst_h, uint32 n_threads, uint64 *out_len)"
+);
+
+const _encode_webp = _lib.func(
+  "uint8 *pict_encode_webp(const uint8 *pixels, uint32 width, uint32 height, uint8 channels, float quality, bool lossless, uint64 *out_len)"
+);
+
+const _encode_avif = _lib.func(
+  "uint8 *pict_encode_avif(const uint8 *pixels, uint32 width, uint32 height, uint8 channels, uint8 quality, uint8 speed, uint64 *out_len)"
+);
+
+const _free = _lib.func("void pict_free_buffer(uint8 *ptr, uint64 len)");
+
+// ── Internal helper ───────────────────────────────────────────────────────────
+
+function copyAndFree(ptr: unknown, len: bigint): Buffer {
+  const size = Number(len);
+  const bytes = koffi.decode(ptr, "uint8", size) as number[];
+  _free(ptr, len);
+  return Buffer.from(bytes);
+}
+
+// ── Public types ──────────────────────────────────────────────────────────────
+
+/** Decoded image in raw pixel format */
+export interface ImageBuffer {
+  /** Raw pixel data: tightly packed, row-major, top-left origin */
+  data: Buffer;
+  width: number;
+  height: number;
+  /** 3 = RGB, 4 = RGBA */
+  channels: number;
+}
+
+export interface ResizeOptions {
+  /**
+   * Target width in pixels.
+   * If omitted, calculated from height to preserve aspect ratio.
+   */
+  width?: number;
+  /**
+   * Target height in pixels.
+   * If omitted, calculated from width to preserve aspect ratio.
+   */
+  height?: number;
+  /** Number of parallel threads (default: 1) */
+  threads?: number;
+}
+
+export interface WebPOptions {
+  /** Quality 0–100 (default: 92) */
+  quality?: number;
+  /** Lossless mode (default: false) */
+  lossless?: boolean;
+}
+
+export interface AvifOptions {
+  /** Quality 0–100 (default: 60) */
+  quality?: number;
+  /**
+   * Encoder speed 0–10 (default: 6).
+   * 10 = fastest (lower quality), 0 = slowest (best quality).
+   */
+  speed?: number;
+}
+
+// ── Public API ────────────────────────────────────────────────────────────────
+
+/**
+ * Decode a JPEG or PNG buffer into raw pixel data.
+ * @throws {Error} if the input cannot be decoded
+ */
+export function decode(input: Buffer | Uint8Array): ImageBuffer {
+  const buf = Buffer.isBuffer(input) ? input : Buffer.from(input);
+
+  const outW   = new Uint32Array(1);
+  const outH   = new Uint32Array(1);
+  const outCh  = new Uint8Array(1);
+  const outLen = new BigUint64Array(1);
+
+  const ptr = _decode_v2(buf, BigInt(buf.byteLength), outW, outH, outCh, outLen);
+  if (ptr === null) {
+    throw new Error("zigpix: decode failed (unsupported format or corrupt data)");
+  }
+
+  return {
+    data: copyAndFree(ptr, outLen[0]),
+    width:    outW[0],
+    height:   outH[0],
+    channels: outCh[0],
+  };
+}
+
+/**
+ * Resize pixel data using Lanczos-3 filter.
+ * At least one of width or height must be specified.
+ * The missing dimension is calculated to preserve the aspect ratio.
+ * @throws {Error} if options are invalid or the resize fails
+ */
+export function resize(image: ImageBuffer, options: ResizeOptions): ImageBuffer {
+  let { width, height, threads = 1 } = options;
+
+  if (!width && !height) {
+    throw new Error("zigpix: resize requires at least one of width or height");
+  }
+
+  if (!width)  width  = Math.round((image.width  / image.height) * height!);
+  if (!height) height = Math.round((image.height / image.width)  * width);
+
+  const outLen = new BigUint64Array(1);
+  const ptr = _resize(
+    image.data,
+    image.width, image.height, image.channels,
+    width, height,
+    threads,
+    outLen,
+  );
+  if (ptr === null) throw new Error("zigpix: resize failed");
+
+  return {
+    data:     copyAndFree(ptr, outLen[0]),
+    width,
+    height,
+    channels: image.channels,
+  };
+}
+
+/**
+ * Encode pixel data as WebP.
+ * @throws {Error} if encoding fails
+ */
+export function encodeWebP(image: ImageBuffer, options: WebPOptions = {}): Buffer {
+  const { quality = 92, lossless = false } = options;
+
+  const outLen = new BigUint64Array(1);
+  const ptr = _encode_webp(
+    image.data,
+    image.width, image.height, image.channels,
+    quality, lossless,
+    outLen,
+  );
+  if (ptr === null) throw new Error("zigpix: WebP encoding failed");
+
+  return copyAndFree(ptr, outLen[0]);
+}
+
+/**
+ * Encode pixel data as AVIF.
+ *
+ * Requires libavif to be installed on the system:
+ *   Mac: brew install libavif
+ *   Linux: apt install libavif-dev
+ *
+ * Returns null if AVIF is not available in this build.
+ * @throws {Error} if encoding fails for a reason other than AVIF being unavailable
+ */
+export function encodeAvif(image: ImageBuffer, options: AvifOptions = {}): Buffer | null {
+  const { quality = 60, speed = 6 } = options;
+
+  const outLen = new BigUint64Array(1);
+  const ptr = _encode_avif(
+    image.data,
+    image.width, image.height, image.channels,
+    quality, speed,
+    outLen,
+  );
+  if (ptr === null) return null;
+
+  return copyAndFree(ptr, outLen[0]);
+}

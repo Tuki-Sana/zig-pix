@@ -1,0 +1,13 @@
+{
+  "name": "zigpix-linux-x64",
+  "version": "0.0.1",
+  "description": "zigpix native binary for Linux x86_64",
+  "os": ["linux"],
+  "cpu": ["x64"],
+  "files": ["libpict.so"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Tuki-Sana/zig-pix.git"
+  }
+}

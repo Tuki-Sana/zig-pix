@@ -283,14 +283,24 @@ zig llvm-nm -D zig-out/linux-x86_64/libpict.so | grep pict_encode_avif  # シン
 
 **目的**: ユーザーが `npm install zigpix` だけで使えるようにする。Zig のインストール不要。
 
-- [ ] プラットフォーム別 pre-built バイナリ戦略の確定
+- [x] プラットフォーム別 pre-built バイナリ戦略の確定
   - `optionalDependencies` を使ったプラットフォーム別パッケージ構成
-  - 対象: `darwin-arm64`, `linux-x64`（最小構成）
-- [ ] GitHub Actions CI でクロスプラットフォームビルドを自動化
-  - Mac: `zig build lib` → `libpict.dylib`（AVIF 有効）
-  - Linux: VPS または GitHub Actions ubuntu runner で `zig build lib` → `libpict.so`（AVIF 有効）
-- [ ] `libavif` / `libaom` の静的リンク方針の確定（配布時はシステム依存を避ける）
+  - 対象: `zigpix-darwin-arm64`, `zigpix-linux-x64`（最小構成）
+  - `npm/` ディレクトリにプラットフォームパッケージのスケルトン作成
+- [x] GitHub Actions CI でクロスプラットフォームビルドを自動化
+  - `.github/workflows/build-native.yml` 作成
+  - Mac (`macos-14`): `brew install libavif` → `zig build lib` → `libpict.dylib` アップロード
+  - Linux (`ubuntu-22.04`): `apt install libavif-dev` → `zig build lib` → `libpict.so` アップロード
+  - 両 runner で Bun / Node.js FFI テスト実行
+- [x] `js/src/index.ts`: TypeScript 公開 API 作成 (decode / resize / encodeWebP / encodeAvif)
+  - `createRequire` でプラットフォームパッケージを解決、開発時は `zig-out/lib/` にフォールバック
+  - `tsconfig.json` + `@types/node` 追加、`npm run build` → `js/dist/` にコンパイル済み
+  - Mac でスモークテスト: 全機能 OK (`ftyp=true`)
+- [x] `libavif` / `libaom` 静的リンク方針の確定
+  - **Phase 8B は動的リンク**（system libavif 必須）。静的リンクは Phase 8B+ に先送り
+  - 理由: 静的リンクには libaom ソースビルドが必要で工数大
 - [ ] npm publish フロー確立 (`npm pack` → テスト → `npm publish`)
+  - プラットフォームパッケージに `libpict.*` を配置してから publish
 - [ ] `README.md` に `npm install zigpix` の使い方を追記
 
 ### Phase 8C — Deno 対応（任意）
