@@ -15,3 +15,4 @@
 - npm script: `npm run mem:peak`
 - `mktemp -t` にラベルの `:` / 空白が渡ると Linux で失敗するため、`mktemp_for_label` でサニタイズ。GNU time 検出は `/usr/bin/true` に統一。
 - `set -o pipefail` 下で `time … | grep -q` すると grep 早期終了で time が SIGPIPE(141) になり検出失敗するため、`pick_gnu_time` は出力を変数に溜めてから grep。
+- Linux x86_64 VPS: FFI `mem-peak.sh` の Max RSS **43672 kB** を README 表に反映。bench は `js/dist` 未生成で失敗し得るため `mem-peak.sh` に `ensure_js_dist`（`npm run build`）を追加。

@@ -64,6 +64,15 @@ ensure_lib() {
   zig build lib
 }
 
+# bench/bench.ts は js/dist/index.js（npm run build）を import する
+ensure_js_dist() {
+  if [[ -f js/dist/index.js ]]; then
+    return 0
+  fi
+  echo "js/dist/index.js が無いため npm run build を実行します…"
+  npm run build
+}
+
 extract_stats() {
   local log="$1"
   echo ""
@@ -90,11 +99,12 @@ ensure_lib
 run_one "FFI: bun test/ffi/test.ts" bun run test/ffi/test.ts
 
 if [[ -f node_modules/sharp/package.json ]]; then
+  ensure_js_dist
   run_one "Bench: npx tsx bench/bench.ts" npx tsx bench/bench.ts
 else
   echo ""
   echo "（スキップ）bench/bench.ts — node_modules/sharp がありません。"
-  echo "  計測する場合: npm install && npm install sharp"
+  echo "  計測する場合: npm install && npm install sharp（あわせて npm run build で js/dist を生成）"
 fi
 
 echo ""
