@@ -118,6 +118,113 @@ pub fn detectFormat(data: []const u8) Format {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// libjpeg-turbo C bridge (extern 宣言)
+// src/c/jpeg_decode.c で実装。CLI / lib / test 全ターゲットでリンクされる。
+// ─────────────────────────────────────────────────────────────────────────────
+
+extern fn pict_jpeg_decode(
+    src: [*]const u8,
+    src_len: c_ulong,
+    out_data: *[*]u8,
+    out_width: *c_uint,
+    out_height: *c_uint,
+    out_channels: *c_uint,
+) c_int;
+
+extern fn pict_jpeg_free(data: [*]u8) void;
+
+/// テスト専用エンコーダ。libjpeg-turbo の jpeg_mem_dest を使う。
+/// 返り値バッファは pict_jpeg_free() で解放すること。
+extern fn pict_jpeg_encode(
+    rgb: [*]const u8,
+    width: c_uint,
+    height: c_uint,
+    quality: c_int,
+    out_jpeg: *?[*]u8,
+    out_len: *c_ulong,
+) c_int;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// JpegDecoder — libjpeg-turbo を使う Decoder 実装
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// libjpeg-turbo を使ってメモリ上の JPEG バイト列をデコードする Decoder 実装。
+///
+/// ステートレスな vtable 実装。`jpegDecoder()` でインスタンスを取得する。
+pub const JpegDecoder = struct {
+    pub const vtable = Decoder.VTable{
+        .decode = decodeImpl,
+        .deinit = deinitImpl,
+    };
+
+    fn decodeImpl(
+        ptr: *anyopaque,
+        data: []const u8,
+        allocator: std.mem.Allocator,
+    ) DecodeError!ImageBuffer {
+        _ = ptr;
+
+        var out_data: [*]u8 = undefined;
+        var out_width: c_uint = 0;
+        var out_height: c_uint = 0;
+        var out_channels: c_uint = 0;
+
+        const result = pict_jpeg_decode(
+            data.ptr,
+            @intCast(data.len),
+            &out_data,
+            &out_width,
+            &out_height,
+            &out_channels,
+        );
+
+        switch (result) {
+            0 => {},
+            -2 => return DecodeError.OutOfMemory,
+            else => return DecodeError.CorruptData,
+        }
+
+        const w: usize = @intCast(out_width);
+        const h: usize = @intCast(out_height);
+        const ch: usize = @intCast(out_channels);
+        const total = h * w * ch;
+        const c_slice = out_data[0..total];
+        defer pict_jpeg_free(out_data);
+
+        const zig_buf = try allocator.alloc(u8, total);
+        errdefer allocator.free(zig_buf);
+        @memcpy(zig_buf, c_slice);
+
+        return ImageBuffer{
+            .width = @intCast(out_width),
+            .height = @intCast(out_height),
+            .channels = @intCast(out_channels),
+            .format = .rgb8,
+            .data = zig_buf,
+            .allocator = allocator,
+        };
+    }
+
+    fn deinitImpl(ptr: *anyopaque) void {
+        _ = ptr;
+    }
+};
+
+/// libjpeg-turbo でメモリ上の JPEG をデコードする Decoder を返す。
+/// JpegDecoder はステートレスなので deinit() は何もしないが、
+/// 呼び出し元は必ず Decoder.deinit() を呼ぶこと。
+pub fn jpegDecoder() Decoder {
+    // ステートレスなので静的ダミーをポインタに使う
+    const Anchor = struct {
+        var byte: u8 = 0;
+    };
+    return .{
+        .ptr = &Anchor.byte,
+        .vtable = &JpegDecoder.vtable,
+    };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // テスト
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -157,4 +264,76 @@ test "ImageBuffer: stride and rowSlice" {
     try std.testing.expectEqual(@as(usize, 16), buf.stride()); // 4px * 4ch
     try std.testing.expectEqual(@as(usize, 16), buf.rowSlice(0).len);
     try std.testing.expectEqual(@as(usize, 16), buf.rowSlice(1).len);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// JPEG デコードパスのテスト (libjpeg-turbo が必要)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// 4×4 グレーの RGB ピクセルを pict_jpeg_encode でエンコードし、
+// JpegDecoder でデコードして寸法・チャンネル・フォーマットを検証する。
+test "JpegDecoder: decode RGB image dimensions" {
+    // 4×4 グレーの RGB 画像 (128, 128, 128)
+    const W = 4;
+    const H = 4;
+    var rgb = [_]u8{128} ** (W * H * 3);
+
+    var jpeg_ptr: ?[*]u8 = null;
+    var jpeg_len: c_ulong = 0;
+    const enc = pict_jpeg_encode(@as([*]const u8, &rgb), W, H, 75, &jpeg_ptr, &jpeg_len);
+    try std.testing.expectEqual(@as(c_int, 0), enc);
+    defer if (jpeg_ptr) |p| pict_jpeg_free(p);
+
+    const jpeg_slice = jpeg_ptr.?[0..jpeg_len];
+
+    var dec = jpegDecoder();
+    defer dec.deinit();
+
+    var buf = try dec.decode(jpeg_slice, std.testing.allocator);
+    defer buf.deinit();
+
+    try std.testing.expectEqual(@as(u32, W), buf.width);
+    try std.testing.expectEqual(@as(u32, H), buf.height);
+    try std.testing.expectEqual(@as(u8, 3), buf.channels);
+    try std.testing.expectEqual(PixelFormat.rgb8, buf.format);
+    try std.testing.expectEqual(W * H * 3, buf.data.len);
+}
+
+// detectFormat が JPEG マジックを返したバイト列を JpegDecoder がデコードできることを確認。
+test "JpegDecoder: detectFormat and decode consistency" {
+    const W = 2;
+    const H = 2;
+    var rgb = [_]u8{ 255, 0, 0 } ** (W * H); // 赤
+
+    var jpeg_ptr: ?[*]u8 = null;
+    var jpeg_len: c_ulong = 0;
+    const enc = pict_jpeg_encode(@as([*]const u8, &rgb), W, H, 90, &jpeg_ptr, &jpeg_len);
+    try std.testing.expectEqual(@as(c_int, 0), enc);
+    defer if (jpeg_ptr) |p| pict_jpeg_free(p);
+
+    const jpeg_slice = jpeg_ptr.?[0..jpeg_len];
+
+    // マジックが .jpeg を返すこと
+    try std.testing.expectEqual(Format.jpeg, detectFormat(jpeg_slice));
+
+    // デコードが成功すること
+    var dec = jpegDecoder();
+    defer dec.deinit();
+
+    var buf = try dec.decode(jpeg_slice, std.testing.allocator);
+    defer buf.deinit();
+
+    try std.testing.expectEqual(@as(u32, W), buf.width);
+    try std.testing.expectEqual(@as(u32, H), buf.height);
+}
+
+// 壊れたバイト列を渡すと CorruptData エラーが返ること。
+test "JpegDecoder: corrupt data returns CorruptData" {
+    const garbage = [_]u8{ 0xFF, 0xD8, 0xFF, 0x00, 0x01, 0x02, 0x03, 0x04 };
+
+    var dec = jpegDecoder();
+    defer dec.deinit();
+
+    const result = dec.decode(&garbage, std.testing.allocator);
+    try std.testing.expectError(DecodeError.CorruptData, result);
 }

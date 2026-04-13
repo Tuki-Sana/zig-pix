@@ -144,12 +144,14 @@ pub fn build(b: *std.Build) void {
         .dest_dir = .{ .override = .{ .custom = "lib" } },
     }).step);
 
-    // ── Unit tests (Zig pipeline のみ) ────────────────────────────────────────
+    // ── Unit tests ────────────────────────────────────────────────────────────
+    // C ライブラリ (libjpeg-turbo 等) も同時にリンクして JPEG デコードパスを検証する。
     const unit_tests = b.addTest(.{
         .root_source_file = b.path("src/root.zig"),
         .target = native_target,
         .optimize = optimize,
     });
+    addCLibraries(b, unit_tests, jconfig_h, jconfigint_h, jversion_h);
     const run_tests = b.addRunArtifact(unit_tests);
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_tests.step);
@@ -184,6 +186,11 @@ fn addCLibraries(
     addLibpng(b, artifact);
     addLibjpegTurbo(b, artifact, jconfig_h, jconfigint_h, jversion_h);
     addLibwebp(b, artifact);
+    // pict-zig-engine C bridge (JPEG decode/encode wrapper with setjmp support)
+    artifact.addCSourceFiles(.{
+        .files = &.{"src/c/jpeg_decode.c"},
+        .flags = &.{"-std=c11"},
+    });
     artifact.linkLibC();
 }
 
