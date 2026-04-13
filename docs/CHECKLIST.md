@@ -49,12 +49,37 @@
 - [x] `StreamingResizer.emitRow` を `vPassOneDyRow*` 経由に統一 (vPassFull と同一コア)
 - [x] emitRow ch=3 フォールバック回帰テスト追加 (expectEqualSlices で完全一致確認)
 
-### Phase 3C — C vendor SIMD 有効化 (未着手)
+#### Phase 3B ベンチマーク基準値 (Phase 3C 比較用)
 
-- [ ] libjpeg-turbo `WITH_SIMD` 有効化 (ARM NEON / x86 SSE2, `build.zig`)
-- [ ] libpng `PNG_ARM_NEON_OPT` / `PNG_INTEL_SSE_OPT` 有効化
-- [ ] `zig build bench` でベンチマーク基準値取得
-- [ ] SIMD 有効後のベンチマーク比較・記録
+環境: Apple M-series (aarch64), ReleaseFast, `zig build bench [-Dsimd=true]`, 5回平均
+
+| ワークロード | SIMD=off | SIMD=on |
+|---|---|---|
+| full-frame RGBA 1920×1080→640×360 | 84.0 ms | 56.3 ms |
+| streaming  RGBA 1920×1080→640×360 | 85.3 ms | 56.8 ms |
+| full-frame RGB  1920×1080→640×360 | 73.2 ms | 71.3 ms |
+
+### Phase 3C — C vendor SIMD 有効化
+
+- [x] `addLibjpegTurbo` をターゲット対応にリファクタ (config header 内生成化、`with_simd` をターゲット arch で決定)
+- [x] libjpeg-turbo aarch64 NEON: `simd/arm/*.c` (13 ファイル) + `aarch64/jsimd.c` + `aarch64/jchuff-neon.c` + `jsimd_neon.S` (`-x assembler-with-cpp`) + `WITH_SIMD=1` + `neon-compat.h` 生成
+- [x] libjpeg-turbo x86_64: NASM 依存のため今フェーズはスキップ (`WITH_SIMD=null` fallback 維持)
+- [x] libpng aarch64: `arm/arm_init.c` + `filter_neon_intrinsics.c` + `palette_neon_intrinsics.c` + `-DPNG_ARM_NEON_OPT=2`
+- [x] libpng x86_64: `intel/intel_init.c` + `filter_sse2_intrinsics.c` + `-DPNG_INTEL_SSE_OPT=1`
+- [x] `zig build bench` でベンチマーク計測・Phase 3B 基準値との比較
+
+#### Phase 3C ベンチマーク結果 (Phase 3B 比較)
+
+環境: Apple M-series (aarch64), ReleaseFast, `zig build bench [-Dsimd=true]`, 5回平均
+
+| ワークロード | Phase 3B SIMD=off | Phase 3C SIMD=off | Phase 3C SIMD=on |
+|---|---|---|---|
+| full-frame RGBA 1920×1080→640×360 | 84.0 ms | 85.1 ms | **57.8 ms** |
+| streaming  RGBA 1920×1080→640×360 | 85.3 ms | 85.2 ms | **59.0 ms** |
+| full-frame RGB  1920×1080→640×360 | 73.2 ms | 73.8 ms | 74.4 ms |
+
+SIMD=off での結果は Phase 3B と同等（誤差範囲内）でリグレッションなし。
+SIMD=on での RGBA は約 32% 短縮（C vendor SIMD の影響より Zig SIMD が主因）。
 
 ---
 

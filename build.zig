@@ -44,50 +44,6 @@ pub fn build(b: *std.Build) void {
         .os_tag = .wasi,
     });
 
-    // ── libjpeg-turbo 設定ヘッダー生成 ───────────────────────────────────────
-    // jconfig.h / jconfigint.h は通常 CMake が生成するが、
-    // Zig ビルドでは addConfigHeader で直接生成する。
-    // Phase 2: WITH_SIMD = null (SIMD 無効)。Phase 3 で有効化。
-    const jconfig_h = b.addConfigHeader(.{
-        .style = .{ .cmake = b.path("vendor/libjpeg-turbo/jconfig.h.in") },
-        .include_path = "jconfig.h",
-    }, .{
-        .JPEG_LIB_VERSION = @as(i64, 62),
-        .VERSION = "3.0.4",
-        .LIBJPEG_TURBO_VERSION = "3.0.4",
-        .LIBJPEG_TURBO_VERSION_NUMBER = @as(i64, 3000004),
-        .C_ARITH_CODING_SUPPORTED = @as(i64, 1),
-        .D_ARITH_CODING_SUPPORTED = @as(i64, 1),
-        .WITH_SIMD = null, // Phase 3 で有効化
-        .RIGHT_SHIFT_IS_UNSIGNED = null,
-    });
-
-    // jversion.h: @COPYRIGHT_YEAR@ のみ置換すれば良い
-    const jversion_h = b.addConfigHeader(.{
-        .style = .{ .cmake = b.path("vendor/libjpeg-turbo/jversion.h.in") },
-        .include_path = "jversion.h",
-    }, .{
-        .COPYRIGHT_YEAR = "2024",
-    });
-
-    const jconfigint_h = b.addConfigHeader(.{
-        .style = .{ .cmake = b.path("vendor/libjpeg-turbo/jconfigint.h.in") },
-        .include_path = "jconfigint.h",
-    }, .{
-        .BUILD = "20240101",
-        .HIDDEN = "__attribute__((visibility(\"hidden\")))",
-        .INLINE = "inline __attribute__((always_inline))",
-        .THREAD_LOCAL = "_Thread_local",
-        .CMAKE_PROJECT_NAME = "libjpeg-turbo",
-        .VERSION = "3.0.4",
-        .SIZE_T = @as(i64, 8), // → SIZEOF_SIZE_T (x86_64 / ARM64)
-        .HAVE_BUILTIN_CTZL = @as(i64, 1),
-        .HAVE_INTRIN_H = null,
-        .C_ARITH_CODING_SUPPORTED = @as(i64, 1),
-        .D_ARITH_CODING_SUPPORTED = @as(i64, 1),
-        .WITH_SIMD = null,
-    });
-
     // ── Core pipeline module (target-agnostic Zig source) ────────────────────
     const pict_mod = b.createModule(.{
         .root_source_file = b.path("src/root.zig"),
@@ -102,7 +58,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     cli.root_module.addImport("pict", pict_mod);
-    addCLibraries(b, cli, jconfig_h, jconfigint_h, jversion_h);
+    addCLibraries(b, cli);
     b.installArtifact(cli);
 
     const run_cmd = b.addRunArtifact(cli);
@@ -119,7 +75,7 @@ pub fn build(b: *std.Build) void {
         .optimize = .ReleaseFast,
     });
     cli_linux.root_module.addImport("pict", pict_mod);
-    addCLibraries(b, cli_linux, jconfig_h, jconfigint_h, jversion_h);
+    addCLibraries(b, cli_linux);
 
     const linux_step = b.step("linux", "Cross-compile for Linux x86_64 VPS");
     linux_step.dependOn(&b.addInstallArtifact(cli_linux, .{
@@ -151,7 +107,7 @@ pub fn build(b: *std.Build) void {
     });
     ffi_lib.root_module.addImport("pict", pict_mod);
     ffi_lib.root_module.addOptions("build_options", build_options);
-    addCLibraries(b, ffi_lib, jconfig_h, jconfigint_h, jversion_h);
+    addCLibraries(b, ffi_lib);
 
     const lib_step = b.step("lib", "Build shared library for FFI (.dylib/.so)");
     lib_step.dependOn(&b.addInstallArtifact(ffi_lib, .{
@@ -165,7 +121,7 @@ pub fn build(b: *std.Build) void {
         .target = native_target,
         .optimize = optimize,
     });
-    addCLibraries(b, unit_tests, jconfig_h, jconfigint_h, jversion_h);
+    addCLibraries(b, unit_tests);
     unit_tests.root_module.addOptions("build_options", build_options);
 
     // CLI (main.zig) の parseArgs 等の純 Zig テストも同じステップで実行する。
@@ -175,7 +131,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     cli_tests.root_module.addImport("pict", pict_mod);
-    addCLibraries(b, cli_tests, jconfig_h, jconfigint_h, jversion_h);
+    addCLibraries(b, cli_tests);
 
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&b.addRunArtifact(unit_tests).step);
@@ -198,18 +154,10 @@ pub fn build(b: *std.Build) void {
 // C ライブラリ統合ヘルパー
 // ─────────────────────────────────────────────────────────────────────────────
 
-const ConfigHeader = std.Build.Step.ConfigHeader;
-
-fn addCLibraries(
-    b: *std.Build,
-    artifact: *std.Build.Step.Compile,
-    jconfig_h: *ConfigHeader,
-    jconfigint_h: *ConfigHeader,
-    jversion_h: *ConfigHeader,
-) void {
+fn addCLibraries(b: *std.Build, artifact: *std.Build.Step.Compile) void {
     addZlib(b, artifact);
     addLibpng(b, artifact);
-    addLibjpegTurbo(b, artifact, jconfig_h, jconfigint_h, jversion_h);
+    addLibjpegTurbo(b, artifact);
     addLibwebp(b, artifact);
     // pict-zig-engine C bridges (JPEG/PNG decode, WebP encode)
     artifact.addCSourceFiles(.{
@@ -247,13 +195,10 @@ fn addZlib(b: *std.Build, artifact: *std.Build.Step.Compile) void {
 
 // ── libpng 1.6.43 ─────────────────────────────────────────────────────────────
 fn addLibpng(b: *std.Build, artifact: *std.Build.Step.Compile) void {
-    // pnglibconf.h は prebuilt をコピーして使う
     artifact.addIncludePath(b.path("vendor/libpng"));
-    artifact.addIncludePath(b.path("vendor/libpng/scripts")); // pnglibconf.h.prebuilt
+    artifact.addIncludePath(b.path("vendor/libpng/scripts"));
     artifact.addIncludePath(b.path("vendor/zlib"));
 
-    // pnglibconf.h: prebuilt を include_path が通るようにシンボリックリンクは
-    // 使わず、Zig の WriteFile ステップでコピーする。
     const copy_pnglibconf = b.addWriteFiles();
     _ = copy_pnglibconf.addCopyFile(
         b.path("vendor/libpng/scripts/pnglibconf.h.prebuilt"),
@@ -262,6 +207,17 @@ fn addLibpng(b: *std.Build, artifact: *std.Build.Step.Compile) void {
     artifact.addIncludePath(copy_pnglibconf.getDirectory());
     artifact.step.dependOn(&copy_pnglibconf.step);
 
+    const arch = artifact.rootModuleTarget().cpu.arch;
+
+    // コアファイルをアーキテクチャ別フラグで追加
+    // aarch64: PNG_ARM_NEON_OPT=2 で常時 NEON 有効 (pngpriv.h が __ARM_NEON 自動検出)
+    // x86_64:  PNG_INTEL_SSE_OPT=1 で SSE2 有効
+    // other:   両方 0 (SIMD なし)
+    const core_flags: []const []const u8 = switch (arch) {
+        .aarch64 => &.{ "-std=c11", "-DPNG_ARM_NEON_OPT=2", "-DPNG_INTEL_SSE_OPT=0" },
+        .x86_64  => &.{ "-std=c11", "-DPNG_ARM_NEON_OPT=0", "-DPNG_INTEL_SSE_OPT=1" },
+        else     => &.{ "-std=c11", "-DPNG_ARM_NEON_OPT=0", "-DPNG_INTEL_SSE_OPT=0" },
+    };
     artifact.addCSourceFiles(.{
         .files = &.{
             "vendor/libpng/png.c",
@@ -280,22 +236,74 @@ fn addLibpng(b: *std.Build, artifact: *std.Build.Step.Compile) void {
             "vendor/libpng/pngwtran.c",
             "vendor/libpng/pngwutil.c",
         },
-        .flags = &.{
-            "-std=c11",
-            "-DPNG_ARM_NEON_OPT=0",   // SIMD は Phase 3 で有効化
-            "-DPNG_INTEL_SSE_OPT=0",
-        },
+        .flags = core_flags,
     });
+
+    // SIMD 実装ファイル (ターゲット別)
+    switch (arch) {
+        .aarch64 => artifact.addCSourceFiles(.{
+            .files = &.{
+                "vendor/libpng/arm/arm_init.c",
+                "vendor/libpng/arm/filter_neon_intrinsics.c",
+                "vendor/libpng/arm/palette_neon_intrinsics.c",
+            },
+            .flags = &.{ "-std=c11", "-DPNG_ARM_NEON_OPT=2" },
+        }),
+        .x86_64 => artifact.addCSourceFiles(.{
+            .files = &.{
+                "vendor/libpng/intel/intel_init.c",
+                "vendor/libpng/intel/filter_sse2_intrinsics.c",
+            },
+            .flags = &.{ "-std=c11", "-DPNG_INTEL_SSE_OPT=1", "-msse2" },
+        }),
+        else => {},
+    }
 }
 
-// ── libjpeg-turbo 3.0.4 (non-SIMD) ──────────────────────────────────────────
-fn addLibjpegTurbo(
-    b: *std.Build,
-    artifact: *std.Build.Step.Compile,
-    jconfig_h: *ConfigHeader,
-    jconfigint_h: *ConfigHeader,
-    jversion_h: *ConfigHeader,
-) void {
+// ── libjpeg-turbo 3.0.4 ──────────────────────────────────────────────────────
+// aarch64: WITH_SIMD=1、NEON C + ASM ファイルを追加。
+// x86_64 : NASM 必須のため WITH_SIMD=null (非 SIMD fallback)。
+// その他 : WITH_SIMD=null。
+fn addLibjpegTurbo(b: *std.Build, artifact: *std.Build.Step.Compile) void {
+    const arch = artifact.rootModuleTarget().cpu.arch;
+    const with_simd: ?i64 = if (arch == .aarch64) 1 else null;
+
+    const jconfig_h = b.addConfigHeader(.{
+        .style = .{ .cmake = b.path("vendor/libjpeg-turbo/jconfig.h.in") },
+        .include_path = "jconfig.h",
+    }, .{
+        .JPEG_LIB_VERSION = @as(i64, 62),
+        .VERSION = "3.0.4",
+        .LIBJPEG_TURBO_VERSION = "3.0.4",
+        .LIBJPEG_TURBO_VERSION_NUMBER = @as(i64, 3000004),
+        .C_ARITH_CODING_SUPPORTED = @as(i64, 1),
+        .D_ARITH_CODING_SUPPORTED = @as(i64, 1),
+        .WITH_SIMD = with_simd,
+        .RIGHT_SHIFT_IS_UNSIGNED = null,
+    });
+    const jversion_h = b.addConfigHeader(.{
+        .style = .{ .cmake = b.path("vendor/libjpeg-turbo/jversion.h.in") },
+        .include_path = "jversion.h",
+    }, .{
+        .COPYRIGHT_YEAR = "2024",
+    });
+    const jconfigint_h = b.addConfigHeader(.{
+        .style = .{ .cmake = b.path("vendor/libjpeg-turbo/jconfigint.h.in") },
+        .include_path = "jconfigint.h",
+    }, .{
+        .BUILD = "20240101",
+        .HIDDEN = "__attribute__((visibility(\"hidden\")))",
+        .INLINE = "inline __attribute__((always_inline))",
+        .THREAD_LOCAL = "_Thread_local",
+        .CMAKE_PROJECT_NAME = "libjpeg-turbo",
+        .VERSION = "3.0.4",
+        .SIZE_T = @as(i64, 8),
+        .HAVE_BUILTIN_CTZL = @as(i64, 1),
+        .HAVE_INTRIN_H = null,
+        .C_ARITH_CODING_SUPPORTED = @as(i64, 1),
+        .D_ARITH_CODING_SUPPORTED = @as(i64, 1),
+        .WITH_SIMD = with_simd,
+    });
     artifact.addConfigHeader(jconfig_h);
     artifact.addConfigHeader(jconfigint_h);
     artifact.addConfigHeader(jversion_h);
@@ -380,7 +388,6 @@ fn addLibjpegTurbo(
             "-D_DEFAULT_SOURCE",
             "-DWITH_ARITH_DEC=1",
             "-DWITH_ARITH_ENC=1",
-            // WITH_SIMD は定義しない (Phase 2: non-SIMD)
         },
     });
 
@@ -463,6 +470,73 @@ fn addLibjpegTurbo(
             "-DWITH_ARITH_ENC=1",
         },
     });
+
+    // ── aarch64 NEON SIMD ─────────────────────────────────────────────────
+    // x86_64 の SIMD は NASM 必須 (.asm ファイル) のため今フェーズはスキップ。
+    // aarch64 は GAS 形式 .S + C intrinsic ファイルのみで構成されるため clang で処理可能。
+    //
+    // コンパイル単位に含めないファイル (別ファイルから #include されるフラグメント):
+    //   simd/arm/jcgryext-neon.c  → jcgray-neon.c に #include される
+    //   simd/arm/jdcolext-neon.c  → jdcolor-neon.c に #include される
+    //   simd/arm/jdmrgext-neon.c  → jdmerge-neon.c に #include される
+    //   simd/arm/aarch64/jccolext-neon.c → jccolor-neon.c に #if __aarch64__ で #include される
+    if (arch == .aarch64) {
+        // neon-compat.h を WriteFile で生成し include パスに追加する。
+        // on aarch64/clang: HAVE_VLD1_S16_X3, HAVE_VLD1_U16_X2, HAVE_VLD1Q_U8_X4 は利用可能。
+        const neon_compat = b.addWriteFiles();
+        _ = neon_compat.add("neon-compat.h",
+            \\#define HAVE_VLD1_S16_X3
+            \\#define HAVE_VLD1_U16_X2
+            \\#define HAVE_VLD1Q_U8_X4
+            \\
+            \\#if defined(_MSC_VER) && !defined(__clang__)
+            \\#define BUILTIN_CLZ(x)      _CountLeadingZeros(x)
+            \\#define BUILTIN_CLZLL(x)    _CountLeadingZeros64(x)
+            \\#define BUILTIN_BSWAP64(x)  _byteswap_uint64(x)
+            \\#elif defined(__clang__) || defined(__GNUC__)
+            \\#define BUILTIN_CLZ(x)      __builtin_clz(x)
+            \\#define BUILTIN_CLZLL(x)    __builtin_clzll(x)
+            \\#define BUILTIN_BSWAP64(x)  __builtin_bswap64(x)
+            \\#else
+            \\#error "Unknown compiler"
+            \\#endif
+        );
+        artifact.addIncludePath(neon_compat.getDirectory());
+        artifact.step.dependOn(&neon_compat.step);
+
+        const neon_flags = &.{ "-std=c11", "-D_DEFAULT_SOURCE" };
+
+        // 共有 ARM NEON C ファイル (aarch32/aarch64 両対応; __aarch64__ で内部分岐)
+        artifact.addCSourceFiles(.{
+            .files = &.{
+                "vendor/libjpeg-turbo/simd/arm/jccolor-neon.c",
+                "vendor/libjpeg-turbo/simd/arm/jcgray-neon.c",
+                "vendor/libjpeg-turbo/simd/arm/jcphuff-neon.c",
+                "vendor/libjpeg-turbo/simd/arm/jcsample-neon.c",
+                "vendor/libjpeg-turbo/simd/arm/jdcolor-neon.c",
+                "vendor/libjpeg-turbo/simd/arm/jdmerge-neon.c",
+                "vendor/libjpeg-turbo/simd/arm/jdsample-neon.c",
+                "vendor/libjpeg-turbo/simd/arm/jfdctfst-neon.c",
+                "vendor/libjpeg-turbo/simd/arm/jfdctint-neon.c",
+                "vendor/libjpeg-turbo/simd/arm/jidctfst-neon.c",
+                "vendor/libjpeg-turbo/simd/arm/jidctint-neon.c",
+                "vendor/libjpeg-turbo/simd/arm/jidctred-neon.c",
+                "vendor/libjpeg-turbo/simd/arm/jquanti-neon.c",
+                // aarch64 専用スタンドアロン C ファイル
+                "vendor/libjpeg-turbo/simd/arm/aarch64/jsimd.c",
+                "vendor/libjpeg-turbo/simd/arm/aarch64/jchuff-neon.c",
+            },
+            .flags = neon_flags,
+        });
+
+        // NEON アセンブリ (GAS 形式、clang が -x assembler-with-cpp でプリプロセス→アセンブル)
+        artifact.addCSourceFiles(.{
+            .files = &.{
+                "vendor/libjpeg-turbo/simd/arm/aarch64/jsimd_neon.S",
+            },
+            .flags = &.{ "-x", "assembler-with-cpp" },
+        });
+    }
 }
 
 // ── libwebp 1.4.0 ────────────────────────────────────────────────────────────
