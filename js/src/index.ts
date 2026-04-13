@@ -12,10 +12,10 @@
  *   The native Zig allocations are freed before returning.
  *
  * AVIF note:
- *   AVIF encoding requires libavif to be installed on the system.
- *   Mac: brew install libavif
- *   Linux: apt install libavif-dev
- *   encodeAvif() returns null if AVIF is unavailable in this build.
+ *   libavif and libaom are statically linked in the distributed npm packages.
+ *   No system-level installation is required when using npm install zigpix.
+ *   encodeAvif() returns null if the build was compiled without AVIF support,
+ *   or if quality/speed options are out of range.
  */
 
 import koffi from "koffi";
@@ -210,12 +210,14 @@ export function encodeWebP(image: ImageBuffer, options: WebPOptions = {}): Buffe
 /**
  * Encode pixel data as AVIF.
  *
- * Requires libavif to be installed on the system:
- *   Mac: brew install libavif
- *   Linux: apt install libavif-dev
+ * libavif and libaom are statically linked in the distributed npm packages.
+ * No system-level installation is required.
  *
- * Returns null if AVIF is not available in this build.
- * @throws {Error} if encoding fails for a reason other than AVIF being unavailable
+ * Returns null if:
+ *   - This build was compiled without AVIF support
+ *   - quality is not an integer in range 0–100
+ *   - speed is not an integer in range 0–10
+ * @throws {Error} if encoding fails for a reason other than the above
  */
 export function encodeAvif(image: ImageBuffer, options: AvifOptions = {}): Buffer | null {
   const { quality = 60, speed = 6 } = options;

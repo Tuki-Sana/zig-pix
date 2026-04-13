@@ -17,19 +17,11 @@ npm install zigpix
 > **ESM 専用パッケージです。** `package.json` に `"type": "module"` が必要です。  
 > CommonJS (`require`) は現在非対応です。
 
-### システム依存ライブラリ（AVIF エンコードに必要）
+### システム依存ライブラリ
 
-AVIF エンコードを使う場合は `libavif` をシステムにインストールしてください。
+**v0.1.0 以降は追加インストール不要です。** `libavif` と `libaom` はバイナリに静的リンク済みです。
 
-**macOS (Apple Silicon)**
-```bash
-brew install libavif
-```
-
-**Linux (Ubuntu / Debian)**
-```bash
-apt install libavif-dev
-```
+> ソースからビルドする場合（開発者向け）は `docs/operations.md` を参照してください。
 
 ## 使い方
 
@@ -118,21 +110,15 @@ interface AvifOptions {
 
 ## トラブルシューティング
 
-**`Error: libavif.so: cannot open shared object file` (Linux)**
+**`encodeAvif()` が常に `null` を返す**
 
-`libavif` がインストールされていません。以下を実行してください：
+`quality` / `speed` が範囲外の場合は `null` を返します（仕様）:
+- `quality`: 整数かつ 0–100 の範囲外
+- `speed`: 整数かつ 0–10 の範囲外
 
-```bash
-apt install libavif-dev
-```
+**`Error: Cannot find module 'zigpix-darwin-arm64'` などのエラー**
 
-インストール後、再度 Node.js プロセスを起動してください。
-
-**`encodeAvif()` が常に `null` を返す (macOS)**
-
-```bash
-brew install libavif
-```
+対応していないプラットフォームです。[動作環境](#動作環境)を確認してください。
 
 ---
 
