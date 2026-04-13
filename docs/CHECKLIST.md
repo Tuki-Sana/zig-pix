@@ -434,3 +434,44 @@ zig llvm-nm -D zig-out/linux-x86_64/libpict.so | grep pict_encode_avif  # シン
 - [ ] メモリピーク計測（将来: `/usr/bin/time -v` または `heapUsed` で計測）
 - [x] Linux VPS クロスコンパイル動作確認 (`zig build linux`) — Phase 4 で確認済み
 - [x] `docs/operations.md` 更新 — Phase 7C で libavif 依存手順・FFI テスト手順を追記済み
+
+---
+
+## Phase 10 — libaom WASM（ブラウザ / Pages 静的 JS 向け AVIF エンコード）
+
+### スコープ定義（事前調査済み）
+
+**対象**:
+- ブラウザ（Chrome / Firefox）
+- Cloudflare Pages 静的 JS（ブラウザ上で実行されるため SIMD・条件付きスレッド利用可）
+
+**対象外（明示的 out-of-scope）**:
+- Cloudflare Workers Free — CPU 10ms 制限で AVIF エンコード不可
+- Cloudflare Workers Paid — シングルスレッド WASM では大画像が数十秒かかるため非推奨
+
+**フォールバック方針**:
+- サーバーサイド・大画像は既存 zigpix ネイティブ（Node/Bun/Deno）を推奨
+- ブラウザ側の小画像（〜256×256）や UX 優先シナリオに WASM を使う
+
+**根拠**（CF Workers 公式ドキュメント確認済み）:
+- SharedArrayBuffer / WASM スレッド: Workers では **非対応**（Spectre 対策）
+- WASM SIMD: Workers でも **対応**（Chrome 相当）
+- CPU 時間（Free）: 10ms、（Paid）: 最大 5分
+- Worker サイズ上限: gzip 後 Free 3MB / Paid 10MB
+
+### 成功条件
+
+- [ ] ブラウザ上で 256×256 PNG → AVIF エンコードが完了し `ftyp` ヘッダーを確認できる
+- [ ] エンコード時間 10秒以内（ブラウザ実測、speed=10）
+- [ ] WASM バイナリサイズ 3MB 以下（gzip 後）
+
+### 実装手順（着手時に詳細化）
+
+- [ ] Emscripten + libaom で WASM バイナリをビルド（Squoosh 方式を参考）
+- [ ] JS グルーコード + TypeScript ラッパー作成
+- [ ] ブラウザ動作確認（Chrome / Firefox）
+- [ ] Pages 静的 JS での動作確認
+- [ ] `wasm/` ディレクトリに成果物を配置し npm サブパッケージ化（例: `zigpix-wasm`）
+
+**難易度**: 高（Emscripten ツールチェーン、libaom ビルド設定、WASM バイナリ最適化）  
+**推奨着手条件**: 非機能（E2E・ベンチ）安定後 ✅（現在達成）
