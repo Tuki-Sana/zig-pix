@@ -407,6 +407,13 @@ zig llvm-nm -D zig-out/linux-x86_64/libpict.so | grep pict_encode_avif  # シン
 - [x] `package.json` に `exports["./deno"]` を追加（`npm:zigpix/deno` で解決可能）
 - [x] THIRD_PARTY_LICENSES に変更なし（静的リンクライブラリは変更なし）
 
+#### 実機確認 ✅
+
+- [x] macOS arm64（ローカル）: `test/ffi/test.deno.ts` 6/6 PASS
+- [x] Linux x64（VPS 実機）: `test/ffi/test.deno.ts` 6/6 PASS
+- [x] CI Linux x64 / macOS arm64: 両ジョブ Success（`continue-on-error` 削除後も安定）
+- [x] `zigpix@0.1.1` npm publish — `./deno` export 含む版としてリリース
+
 ---
 
 ## 非機能 / 運用
