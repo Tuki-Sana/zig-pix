@@ -186,11 +186,12 @@ fn addCLibraries(
     addLibpng(b, artifact);
     addLibjpegTurbo(b, artifact, jconfig_h, jconfigint_h, jversion_h);
     addLibwebp(b, artifact);
-    // pict-zig-engine C bridges (JPEG / PNG decode/encode wrappers with setjmp support)
+    // pict-zig-engine C bridges (JPEG/PNG decode, WebP encode)
     artifact.addCSourceFiles(.{
         .files = &.{
             "src/c/jpeg_decode.c",
             "src/c/png_decode.c",
+            "src/c/webp_encode.c",
         },
         .flags = &.{"-std=c11"},
     });
