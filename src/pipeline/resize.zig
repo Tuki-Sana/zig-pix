@@ -246,54 +246,35 @@ pub fn resizeLanczos3(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// V-pass 行取得抽象 (RowSource)
+// V-pass 行取得 fetcher (anytype 静的ディスパッチ)
 //
-// `vPassOneDyRow*` は V-pass カーネルの積算ロジックを 1 行単位で提供する。
-// 行データの取得元が「連続 inter バッファ」か「ring バッファ」かは RowSource で抽象化し、
-// vPassFull* と StreamingResizer.emitRow が同一の計算コアを共有できるようにする。
+// `vPassOneDyRow*` は `fetcher: anytype` を受け取り、コンパイル時に型が解決される。
+// 関数ポインタ経由の間接呼び出しを排除し、インライン化・ループ最適化を妨げない。
+//
+// fetcher は `.get(sy: usize) ?[]const f32` メソッドを持つ任意の struct:
+//   InterSource — vPassFull* から使用 (常に非 null)
+//   RingSource  — StreamingResizer.emitRow から使用 (窓外は null)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// V-pass の行アクセス抽象。RowSink と対称な vtable 設計。
-/// `get(sy)` はソース空間の絶対行インデックス `sy` を受け取り行スライスを返す。
-/// ring バッファの場合、窓外の行は null を返す (→ InternalRingEviction)。
-const RowSource = struct {
-    ctx: *anyopaque,
-    getFn: *const fn (ctx: *anyopaque, sy: usize) ?[]const f32,
-
-    fn get(self: RowSource, sy: usize) ?[]const f32 {
-        return self.getFn(self.ctx, sy);
-    }
-};
-
-/// 連続 f32 中間バッファ用 RowSource — vPassFull* から使用する。
-/// clamped インデックスは常に [0, sh-1] に収まるため null は返さない。
+/// 連続 f32 中間バッファ fetcher — vPassFull* から使用する。
+/// clamped インデックスは常に [0, sh-1] に収まるため .get() は null を返さない。
 const InterSource = struct {
     inter: []const f32,
     row_stride: usize,
 
-    fn rowSource(self: *InterSource) RowSource {
-        return .{ .ctx = self, .getFn = getFn };
-    }
-
-    fn getFn(ctx: *anyopaque, sy: usize) ?[]const f32 {
-        const s: *InterSource = @ptrCast(@alignCast(ctx));
-        const base = sy * s.row_stride;
-        return s.inter[base .. base + s.row_stride];
+    fn get(self: InterSource, sy: usize) ?[]const f32 {
+        const base = sy * self.row_stride;
+        return self.inter[base .. base + self.row_stride];
     }
 };
 
-/// RingBuffer(f32) 用 RowSource — StreamingResizer.emitRow から使用する。
+/// RingBuffer(f32) fetcher — StreamingResizer.emitRow から使用する。
 /// 窓外の行が要求された場合は null を返し、呼び出し元が InternalRingEviction を返す。
 const RingSource = struct {
     ring: *const ring_mod.RingBuffer(f32),
 
-    fn rowSource(self: *RingSource) RowSource {
-        return .{ .ctx = self, .getFn = getFn };
-    }
-
-    fn getFn(ctx: *anyopaque, sy: usize) ?[]const f32 {
-        const s: *RingSource = @ptrCast(@alignCast(ctx));
-        return s.ring.getRow(sy);
+    fn get(self: RingSource, sy: usize) ?[]const f32 {
+        return self.ring.getRow(sy);
     }
 };
 
@@ -311,12 +292,11 @@ fn vPassFull(inter: []const f32, dst: []u8, sh: u32, dh: u32, dw: u32, ch: u8, s
 fn vPassFullScalar(inter: []const f32, dst: []u8, sh: u32, dh: u32, dw: u32, ch: u8, scale_y: f32) void {
     const support = LANCZOS_A / @min(scale_y, 1.0);
     const row_stride = @as(usize, dw) * ch;
-    var src = InterSource{ .inter = inter, .row_stride = row_stride };
-    const source = src.rowSource();
+    const src = InterSource{ .inter = inter, .row_stride = row_stride };
     for (0..dh) |dy| {
         // InterSource は clamped インデックスに対して null を返さない。
         vPassOneDyRowScalar(
-            source,
+            src,
             dst[dy * row_stride .. (dy + 1) * row_stride],
             @intCast(dy),
             sh, dw, ch, scale_y, support,
@@ -330,12 +310,11 @@ fn vPassFullScalar(inter: []const f32, dst: []u8, sh: u32, dh: u32, dw: u32, ch:
 fn vPassFullSimd(inter: []const f32, dst: []u8, sh: u32, dh: u32, dw: u32, ch: u8, scale_y: f32) void {
     const support = LANCZOS_A / @min(scale_y, 1.0);
     const row_stride = @as(usize, dw) * ch;
-    var src = InterSource{ .inter = inter, .row_stride = row_stride };
-    const source = src.rowSource();
+    const src = InterSource{ .inter = inter, .row_stride = row_stride };
     for (0..dh) |dy| {
         // InterSource は clamped インデックスに対して null を返さない。
         vPassOneDyRowSimd(
-            source,
+            src,
             dst[dy * row_stride .. (dy + 1) * row_stride],
             @intCast(dy),
             sh, dw, ch, scale_y, support,
@@ -351,9 +330,10 @@ fn vPassFullSimd(inter: []const f32, dst: []u8, sh: u32, dh: u32, dw: u32, ch: u
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// V-pass スカラー 1 行コア (f64 積算)。
-/// RowSource 経由で行データを取得するため、inter バッファと ring の両方に対応する。
+/// `fetcher` は anytype: `.get(sy: usize) ?[]const f32` を持つ InterSource / RingSource。
+/// コンパイル時に型が確定し、間接呼び出しなしでインライン化される。
 fn vPassOneDyRowScalar(
-    source: RowSource,
+    fetcher: anytype,
     dst_row: []u8,
     dy: u32,
     sh: u32,
@@ -377,7 +357,7 @@ fn vPassOneDyRowScalar(
             );
             if (w == 0.0) continue;
             const clamped: usize = @intCast(std.math.clamp(sy, 0, @as(i64, @intCast(sh)) - 1));
-            const row = source.get(clamped) orelse return ResizeError.InternalRingEviction;
+            const row = fetcher.get(clamped) orelse return ResizeError.InternalRingEviction;
             for (0..ch) |c| sum[c] += @as(f64, row[dx * ch + c]) * w;
             weight_sum += w;
         }
@@ -393,8 +373,9 @@ fn vPassOneDyRowScalar(
 
 /// V-pass SIMD 1 行コア (@Vector(4, f32)、f32 積算)。
 /// ch == 4 のときのみ SIMD を使用し、それ以外は vPassOneDyRowScalar に委譲する。
+/// `fetcher` は anytype: `.get(sy: usize) ?[]const f32` を持つ InterSource / RingSource。
 fn vPassOneDyRowSimd(
-    source: RowSource,
+    fetcher: anytype,
     dst_row: []u8,
     dy: u32,
     sh: u32,
@@ -404,7 +385,7 @@ fn vPassOneDyRowSimd(
     support_y: f32,
 ) ResizeError!void {
     if (ch != 4) {
-        return vPassOneDyRowScalar(source, dst_row, dy, sh, dw, ch, scale_y, support_y);
+        return vPassOneDyRowScalar(fetcher, dst_row, dy, sh, dw, ch, scale_y, support_y);
     }
 
     const Vec4f = @Vector(4, f32);
@@ -423,7 +404,7 @@ fn vPassOneDyRowSimd(
             );
             if (w == 0.0) continue;
             const clamped: usize = @intCast(std.math.clamp(sy, 0, @as(i64, @intCast(sh)) - 1));
-            const row = source.get(clamped) orelse return ResizeError.InternalRingEviction;
+            const row = fetcher.get(clamped) orelse return ResizeError.InternalRingEviction;
             const base = dx * 4;
             const px: Vec4f = .{ row[base + 0], row[base + 1], row[base + 2], row[base + 3] };
             const wv: Vec4f = @splat(w);
@@ -566,18 +547,18 @@ pub const StreamingResizer = struct {
     }
 
     fn emitRow(self: *StreamingResizer, dy: u32, sink: RowSink) !void {
-        // RingSource 経由で vPassOneDyRow* を呼び、vPassFull* と計算ロジックを共有する。
-        var ring_src = RingSource{ .ring = &self.ring };
-        const source = ring_src.rowSource();
+        // RingSource (anytype) 経由で vPassOneDyRow* を呼び、vPassFull* と計算ロジックを共有する。
+        // comptime 静的ディスパッチにより関数ポインタ経由の間接呼び出しを回避する。
+        const ring_src = RingSource{ .ring = &self.ring };
         if (comptime simd_enabled) {
             try vPassOneDyRowSimd(
-                source, self.out_row_buf, dy,
+                ring_src, self.out_row_buf, dy,
                 self.config.src_height, self.config.dst_width, self.config.channels,
                 self.scale_y, self.support_y,
             );
         } else {
             try vPassOneDyRowScalar(
-                source, self.out_row_buf, dy,
+                ring_src, self.out_row_buf, dy,
                 self.config.src_height, self.config.dst_width, self.config.channels,
                 self.scale_y, self.support_y,
             );

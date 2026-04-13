@@ -38,14 +38,15 @@
 - [x] `hPassRow` / `vPassFull` を comptime dispatcher + scalar + stub に分割 (`resize.zig`)
 - [x] `simd_enabled` 定数を公開、scaffold テスト 2 件追加
 
-### Phase 3B — Zig SIMD 実装 (H-pass 完了 / V-pass 未着手)
+### Phase 3B — Zig SIMD 実装 + emitRow 整合 ✅
 
 - [x] `hPassRowSimd`: `@Vector(4, f32)` で 4ch 並列 H-pass 実装
 - [x] H-pass 正確性テスト 3 件 (scalar vs SIMD ±1.0 以内、ch=3 フォールバック)
 - [x] `vPassFullSimd`: `@Vector(4, f32)` で 4ch 並列 V-pass 実装
 - [x] V-pass 正確性テスト 3 件 (scalar vs SIMD ±1 以内、ch=3 フォールバック完全一致)
-- [x] `vPassOneDyRowScalar` / `vPassOneDyRowSimd` 抽出 + `RowSource` / `InterSource` / `RingSource` 導入
-- [x] `StreamingResizer.emitRow` を `vPassOneDyRow*` 経由に統一 (vPassFull と同一コア) ← **今回完了**
+- [x] `vPassOneDyRowScalar` / `vPassOneDyRowSimd` 抽出 — `anytype` 静的ディスパッチで vtable 間接呼び出しを排除
+- [x] `InterSource` / `RingSource` を `.get()` のみの単純 struct に整理 (関数ポインタなし)
+- [x] `StreamingResizer.emitRow` を `vPassOneDyRow*` 経由に統一 (vPassFull と同一コア)
 - [x] emitRow ch=3 フォールバック回帰テスト追加 (expectEqualSlices で完全一致確認)
 
 ### Phase 3C — C vendor SIMD 有効化 (未着手)
