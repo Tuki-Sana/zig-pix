@@ -290,9 +290,65 @@ fn vPassFullScalar(inter: []const f32, dst: []u8, sh: u32, dh: u32, dw: u32, ch:
     }
 }
 
-/// SIMD 実装スタブ — Phase 3B で NEON / SSE 実装に置き換える。
+/// SIMD V-pass 実装 — Zig @Vector(4, f32) で 4 チャンネルを並列処理する。
+///
+/// 戦略:
+///   - ch == 4 (RGBA) のとき @Vector(4, f32) でチャンネル方向の積算を並列化する。
+///   - ch != 4 の場合はスカラーにフォールバックする。
+///   - 各 tap のカーネル重みは引き続きスカラー `lanczosKernel` で計算する。
+///   - f32 積算 (スカラーは f64) のため精度差が生じるが ±1 LSB 以内に収まる。
+///   - StreamingResizer.emitRow は独自インライン V-pass を持つため本関数の影響外。
 fn vPassFullSimd(inter: []const f32, dst: []u8, sh: u32, dh: u32, dw: u32, ch: u8, scale_y: f32) void {
-    vPassFullScalar(inter, dst, sh, dh, dw, ch, scale_y);
+    if (ch != 4) {
+        // RGB (ch=3) など 4ch 以外はスカラーで処理する。
+        vPassFullScalar(inter, dst, sh, dh, dw, ch, scale_y);
+        return;
+    }
+
+    const Vec4f = @Vector(4, f32);
+    const support = LANCZOS_A / @min(scale_y, 1.0);
+    const row_stride = @as(usize, dw) * 4;
+
+    for (0..dh) |dy| {
+        const sy_center = (@as(f32, @floatFromInt(dy)) + 0.5) / scale_y - 0.5;
+        const sy_min: i64 = @intFromFloat(@floor(sy_center - support));
+        const sy_max: i64 = @intFromFloat(@ceil(sy_center + support));
+
+        for (0..dw) |dx| {
+            // 4 チャンネルを f32 ベクトルで並列積算する。
+            var sum: Vec4f = @splat(0.0);
+            var weight_sum: f32 = 0.0;
+
+            var sy: i64 = sy_min;
+            while (sy <= sy_max) : (sy += 1) {
+                const w: f32 = lanczosKernel(
+                    (@as(f32, @floatFromInt(sy)) - sy_center) * @min(scale_y, 1.0),
+                );
+                if (w == 0.0) continue;
+                const clamped: usize = @intCast(std.math.clamp(sy, 0, @as(i64, @intCast(sh)) - 1));
+                const base = clamped * row_stride + dx * 4;
+                // f32×4 を @Vector(4, f32) としてロードして重み付き加算する。
+                const px: Vec4f = .{
+                    inter[base + 0],
+                    inter[base + 1],
+                    inter[base + 2],
+                    inter[base + 3],
+                };
+                const wv: Vec4f = @splat(w);
+                sum += px * wv;
+                weight_sum += w;
+            }
+
+            // 正規化・クランプ・丸め → u8 書き出し
+            const inv_w: Vec4f = @splat(1.0 / weight_sum);
+            const result = sum * inv_w;
+            const dst_base = dy * row_stride + dx * 4;
+            dst[dst_base + 0] = @intFromFloat(std.math.clamp(@round(result[0]), 0.0, 255.0));
+            dst[dst_base + 1] = @intFromFloat(std.math.clamp(@round(result[1]), 0.0, 255.0));
+            dst[dst_base + 2] = @intFromFloat(std.math.clamp(@round(result[2]), 0.0, 255.0));
+            dst[dst_base + 3] = @intFromFloat(std.math.clamp(@round(result[3]), 0.0, 255.0));
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -754,4 +810,93 @@ test "hPassRowSimd: ch=3 (RGB) はスカラーフォールバックで一致" {
     for (0..DW * CH) |i| {
         try std.testing.expectEqual(ref[i], got[i]);
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 3B: V-pass SIMD 正確性テスト
+// ─────────────────────────────────────────────────────────────────────────────
+
+test "vPassFullSimd: 4ch グラデーション中間バッファでスカラーと ±1 以内に一致 (2x downscale)" {
+    const SH: u32 = 8;
+    const DW: u32 = 4;
+    const DH: u32 = 4;
+    const CH: u8 = 4;
+    const scale_y: f32 = @as(f32, @floatFromInt(DH)) / @as(f32, @floatFromInt(SH));
+
+    // H-pass 後の f32 中間バッファを模擬する (値は 0–255 の範囲内 f32)
+    var inter: [SH * DW * CH]f32 = undefined;
+    for (0..SH) |y| for (0..DW) |x| {
+        const base = (y * DW + x) * CH;
+        inter[base + 0] = @floatFromInt(x * 60 + y * 10);
+        inter[base + 1] = @floatFromInt(255 - x * 50);
+        inter[base + 2] = 128.0;
+        inter[base + 3] = 255.0;
+    };
+
+    var ref: [DH * DW * CH]u8 = undefined;
+    var got: [DH * DW * CH]u8 = undefined;
+    vPassFullScalar(&inter, &ref, SH, DH, DW, CH, scale_y);
+    vPassFullSimd(&inter, &got, SH, DH, DW, CH, scale_y);
+
+    for (0..DH * DW * CH) |i| {
+        const diff: i16 = @as(i16, ref[i]) - @as(i16, got[i]);
+        if (diff < -1 or diff > 1) {
+            std.debug.print("vpass[{d}]: scalar={d} simd={d}\n", .{ i, ref[i], got[i] });
+            return error.TestUnexpectedResult;
+        }
+    }
+}
+
+test "vPassFullSimd: 4ch チェッカーボード中間バッファでスカラーと ±1 以内に一致 (2x upscale)" {
+    const SH: u32 = 4;
+    const DW: u32 = 4;
+    const DH: u32 = 8;
+    const CH: u8 = 4;
+    const scale_y: f32 = @as(f32, @floatFromInt(DH)) / @as(f32, @floatFromInt(SH));
+
+    var inter: [SH * DW * CH]f32 = undefined;
+    for (0..SH) |y| for (0..DW) |x| {
+        const v: f32 = if ((x + y) % 2 == 0) 240.0 else 20.0;
+        const base = (y * DW + x) * CH;
+        inter[base + 0] = v;
+        inter[base + 1] = v;
+        inter[base + 2] = v;
+        inter[base + 3] = 255.0;
+    };
+
+    var ref: [DH * DW * CH]u8 = undefined;
+    var got: [DH * DW * CH]u8 = undefined;
+    vPassFullScalar(&inter, &ref, SH, DH, DW, CH, scale_y);
+    vPassFullSimd(&inter, &got, SH, DH, DW, CH, scale_y);
+
+    for (0..DH * DW * CH) |i| {
+        const diff: i16 = @as(i16, ref[i]) - @as(i16, got[i]);
+        if (diff < -1 or diff > 1) {
+            std.debug.print("vpass[{d}]: scalar={d} simd={d}\n", .{ i, ref[i], got[i] });
+            return error.TestUnexpectedResult;
+        }
+    }
+}
+
+test "vPassFullSimd: ch=3 (RGB) はスカラーフォールバックで完全一致" {
+    const SH: u32 = 4;
+    const DW: u32 = 4;
+    const DH: u32 = 4;
+    const CH: u8 = 3;
+    const scale_y: f32 = 1.0;
+
+    var inter: [SH * DW * CH]f32 = undefined;
+    for (0..SH) |y| for (0..DW) |x| {
+        const base = (y * DW + x) * CH;
+        inter[base + 0] = @floatFromInt(x * 80);
+        inter[base + 1] = @floatFromInt(y * 80);
+        inter[base + 2] = 128.0;
+    };
+
+    var ref: [DH * DW * CH]u8 = undefined;
+    var got: [DH * DW * CH]u8 = undefined;
+    vPassFullScalar(&inter, &ref, SH, DH, DW, CH, scale_y);
+    vPassFullSimd(&inter, &got, SH, DH, DW, CH, scale_y);  // フォールバック → 完全一致
+
+    try std.testing.expectEqualSlices(u8, &ref, &got);
 }

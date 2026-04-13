@@ -40,10 +40,10 @@
 
 ### Phase 3B — Zig SIMD 実装 (H-pass 完了 / V-pass 未着手)
 
-- [x] `hPassRowSimd`: `@Vector(4, f32)` で 4ch 並列 H-pass 実装 ← **今回完了**
+- [x] `hPassRowSimd`: `@Vector(4, f32)` で 4ch 並列 H-pass 実装
 - [x] H-pass 正確性テスト 3 件 (scalar vs SIMD ±1.0 以内、ch=3 フォールバック)
-- [ ] `vPassFullSimd`: V-pass SIMD 実装 (スタブ → 実装) ← **次タスク**
-- [ ] V-pass 正確性テスト追加
+- [x] `vPassFullSimd`: `@Vector(4, f32)` で 4ch 並列 V-pass 実装 ← **今回完了**
+- [x] V-pass 正確性テスト 3 件 (scalar vs SIMD ±1 以内、ch=3 フォールバック完全一致)
 
 ### Phase 3C — C vendor SIMD 有効化 (未着手)
 
