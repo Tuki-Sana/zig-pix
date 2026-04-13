@@ -13,7 +13,7 @@
   },
   "files": [
     "js/dist",
-    "npm"
+    "README.md"
   ],
   "scripts": {
     "build": "tsc",
