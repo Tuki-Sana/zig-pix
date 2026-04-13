@@ -15,13 +15,13 @@ const ring_mod = @import("../mem/ring.zig");
 
 pub const LANCZOS_A: f32 = 3.0;
 
-/// channels は 1/3/4 のみサポート (sum バッファ上限 = 4)
+/// channels は 1–4 をサポート (sum バッファ上限 = 4)
 pub const ResizeConfig = struct {
     src_width: u32,
     src_height: u32,
     dst_width: u32,
     dst_height: u32,
-    /// サポート値: 1 (Gray), 3 (RGB), 4 (RGBA)
+    /// サポート値: 1 (Gray), 2 (Gray+A), 3 (RGB), 4 (RGBA)
     channels: u8 = 4,
 };
 
