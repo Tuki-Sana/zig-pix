@@ -16,16 +16,23 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+# pipefail + time|grep -q だと grep 終了でパイプが閉じ、time が SIGPIPE(141) になり検出が偽になる。
+# 出力を一旦全部受け取ってから grep する。
 pick_gnu_time() {
+  local out
   if [[ "$(uname -s)" == "Linux" ]]; then
-    if /usr/bin/time -v /usr/bin/true 2>&1 | grep -Fq "Maximum resident set size"; then
+    out="$(/usr/bin/time -v /usr/bin/true 2>&1)" || true
+    if printf '%s\n' "$out" | grep -Fq "Maximum resident set size"; then
       echo "/usr/bin/time -v"
       return 0
     fi
   fi
-  if command -v gtime >/dev/null 2>&1 && gtime -v /usr/bin/true 2>&1 | grep -Fq "Maximum resident set size"; then
-    echo "gtime -v"
-    return 0
+  if command -v gtime >/dev/null 2>&1; then
+    out="$(gtime -v /usr/bin/true 2>&1)" || true
+    if printf '%s\n' "$out" | grep -Fq "Maximum resident set size"; then
+      echo "gtime -v"
+      return 0
+    fi
   fi
   return 1
 }
