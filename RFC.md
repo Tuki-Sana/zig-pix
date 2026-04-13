@@ -7,8 +7,13 @@
 ## 2. ターゲット環境と実行形式
 
 - **Primary (Native):** Linux VPS (vCPU: 2コア / RAM: 2GB) - Linux x86_64 バイナリ。
-- **Secondary (Edge):** Cloudflare Workers / Edge 配信 - WebAssembly (Wasm/WASI)。
+- **Secondary (Browser):** Cloudflare Pages など静的ホスティング - ブラウザ側 WebAssembly（`zigpix-wasm`）。
 - **Development:** Mac (Apple Silicon) - クロスコンパイルを前提とする。
+
+> **Cloudflare Workers (Edge) はスコープ外。**  
+> AVIF エンコードは最速設定でも 256×256 で約 5ms、512×512 で約 17ms かかる。  
+> Cloudflare Workers の CPU 制限（無料 10ms / 有料 50ms）と相容れず、実用に耐えない。  
+> 代替として「ブラウザ側 WASM でエンコード → Cloudflare Pages でホスティング」を採用。
 
 ## 3. 技術的要件
 
