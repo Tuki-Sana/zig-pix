@@ -341,15 +341,18 @@ zig llvm-nm -D zig-out/linux-x86_64/libpict.so | grep pict_encode_avif  # シン
 - [x] `addLibAvifStatic` ヘルパー追加（libavif.a + libaom.a を `addObjectFile` で直接リンク）
 - [x] `-Davif=static|system` オプション追加（デフォルト: system で後方互換維持）
 
-#### Step 3 — CI 更新
+#### Step 3 — CI 更新 ✅
 
-- [ ] Linux: `apt install cmake nasm` 追加、`apt install libavif-dev` 削除
-- [ ] macOS: `brew install cmake`（nasm 不要化の可否を確認して分岐明確化）
-- [ ] 両 runner で FFI テスト全件 PASS 確認
+- [x] Linux: `apt install cmake nasm ninja-build g++` 追加、`apt install libavif-dev` 削除
+- [x] macOS: `brew install cmake ninja`（arm64 は nasm 不要を確認）
+- [x] 両 runner で libavif を cmake 静的ビルド（FetchContent で libaom 自動ビルド）
+- [x] `zig build lib -Davif=static` に変更
+- [x] `ldd` / `otool -L` で libavif / libaom 動的依存がないことを CI で検証
+- [x] 両 runner で FFI テスト全件 PASS 確認（build-linux-x64: 3m2s / build-darwin-arm64: 2m50s）
 
 #### Step 4 — 仕上げ
 
-- [ ] `THIRD_PARTY_LICENSES` に libaom / libavif の正確なバージョン・SHA を記載
+- [x] `THIRD_PARTY_LICENSES` に libaom v3.12.1 (10aece41) / libavif v1.4.1 (6543b22b) の正確なバージョン・SHA を記載
 - [ ] `npm 0.1.0` で publish（静的リンク版として初の minor バージョン）
 
 ---

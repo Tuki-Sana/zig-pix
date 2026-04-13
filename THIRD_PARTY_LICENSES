@@ -111,7 +111,7 @@ Their respective license texts are reproduced below as required by each license.
 
 --------------------------------------------------------------------------------
 5. libavif
-   Version: system library (1.x series)
+   Version: 1.4.1 (commit: 6543b22b5bc706c53f038a16fe515f921556d9b3)
    Source:  https://github.com/AOMediaCodec/libavif
    License: BSD 2-Clause
 
@@ -133,12 +133,12 @@ Their respective license texts are reproduced below as required by each license.
    LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
    A PARTICULAR PURPOSE ARE DISCLAIMED.
 
-   Note: This library is dynamically linked from the host system and is
-   not bundled in this package. See: https://github.com/AOMediaCodec/libavif
+   Note: This library is statically linked into the distributed binaries.
+   Source: https://github.com/AOMediaCodec/libavif/tree/v1.4.1
 
 --------------------------------------------------------------------------------
 6. libaom (AV1 codec)
-   Version: system library
+   Version: 3.12.1 (commit: 10aece4157eb79315da205f39e19bf6ab3ee30d0)
    Source:  https://aomedia.googlesource.com/aom
    License: BSD 2-Clause
 
@@ -158,8 +158,8 @@ Their respective license texts are reproduced below as required by each license.
    THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
    "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES ARE DISCLAIMED.
 
-   Note: This library is dynamically linked from the host system and is
-   not bundled in this package. See: https://aomedia.googlesource.com/aom
+   Note: This library is statically linked into the distributed binaries.
+   Source: https://aomedia.googlesource.com/aom/+/refs/tags/v3.12.1
 
    AV1 Patent Notice:
    The Alliance for Open Media Patent License 1.0 applies to this codec.
