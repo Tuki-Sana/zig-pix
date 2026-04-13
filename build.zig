@@ -9,6 +9,7 @@ const std = @import("std");
 //   zig build linux                  → Linux x86_64 cross-compile (ReleaseFast)
 //   zig build wasm                   → WebAssembly / WASI (ReleaseSmall)
 //   zig build lib                    → Shared library for FFI (.dylib / .so)
+//   zig build lib-linux              → Linux x86_64 shared library for FFI (.so)
 //   zig build test                   → Unit tests (Zig + C ライブラリ、JPEG/PNG/WebP パス含む)
 //   zig build bench                  → Benchmarks (ReleaseFast)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -112,6 +113,22 @@ pub fn build(b: *std.Build) void {
     const lib_step = b.step("lib", "Build shared library for FFI (.dylib/.so)");
     lib_step.dependOn(&b.addInstallArtifact(ffi_lib, .{
         .dest_dir = .{ .override = .{ .custom = "lib" } },
+    }).step);
+
+    // ── Shared library Linux x86_64 cross-compile (FFI: VPS) ─────────────────
+    const ffi_lib_linux = b.addSharedLibrary(.{
+        .name = "pict",
+        .root_source_file = b.path("src/root.zig"),
+        .target = linux_target,
+        .optimize = .ReleaseFast,
+    });
+    ffi_lib_linux.root_module.addImport("pict", pict_mod);
+    ffi_lib_linux.root_module.addOptions("build_options", build_options);
+    addCLibraries(b, ffi_lib_linux);
+
+    const lib_linux_step = b.step("lib-linux", "Cross-compile shared library for Linux x86_64 VPS (.so)");
+    lib_linux_step.dependOn(&b.addInstallArtifact(ffi_lib_linux, .{
+        .dest_dir = .{ .override = .{ .custom = "linux-x86_64" } },
     }).step);
 
     // ── Unit tests ────────────────────────────────────────────────────────────
