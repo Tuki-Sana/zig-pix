@@ -29,8 +29,16 @@ import { createRequire } from "module";
 function resolveLibPath(): string {
   const plat = platform();
   const cpu = arch();
+
+  if (plat !== "darwin" && plat !== "linux") {
+    throw new Error(`zigpix: unsupported platform: ${plat} (supported: darwin, linux)`);
+  }
+  if (cpu !== "arm64" && cpu !== "x64") {
+    throw new Error(`zigpix: unsupported architecture: ${cpu} (supported: arm64, x64)`);
+  }
+
   const ext = plat === "darwin" ? "dylib" : "so";
-  const pkgName = `zigpix-${plat}-${cpu === "arm64" ? "arm64" : "x64"}`;
+  const pkgName = `zigpix-${plat}-${cpu}`;
 
   try {
     // Production: loaded from optional npm platform package
@@ -211,6 +219,9 @@ export function encodeWebP(image: ImageBuffer, options: WebPOptions = {}): Buffe
  */
 export function encodeAvif(image: ImageBuffer, options: AvifOptions = {}): Buffer | null {
   const { quality = 60, speed = 6 } = options;
+
+  if (!Number.isInteger(quality) || quality < 0 || quality > 100) return null;
+  if (!Number.isInteger(speed)   || speed   < 0 || speed   > 10)  return null;
 
   const outLen = new BigUint64Array(1);
   const ptr = _encode_avif(
