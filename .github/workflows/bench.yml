@@ -1,0 +1,55 @@
+name: Benchmark
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  bench-linux-x64:
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Zig 0.13.0
+        uses: mlugg/setup-zig@v1
+        with:
+          version: 0.13.0
+
+      - name: Install build tools (cmake / nasm / ninja / g++)
+        run: sudo apt-get install -y cmake nasm ninja-build g++
+
+      - name: Build libavif (static) — libaom via FetchContent
+        run: |
+          mkdir -p build/libavif && cd build/libavif
+          cmake ../../vendor/libavif -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=../../build/libavif-install \
+            -DAVIF_CODEC_AOM=LOCAL \
+            -DAVIF_CODEC_DAV1D=OFF \
+            -DAVIF_BUILD_TESTS=OFF \
+            -DAVIF_BUILD_APPS=OFF \
+            -DAVIF_LIBYUV=OFF \
+            -DBUILD_SHARED_LIBS=OFF
+          ninja
+          ninja install
+
+      - name: Build libpict.so (static avif)
+        run: zig build lib -Doptimize=ReleaseFast -Davif=static
+
+      - name: Install Node.js deps (zigpix + sharp)
+        run: npm install && npm install sharp
+
+      - name: Run benchmark (zigpix vs sharp)
+        run: npx tsx bench/bench.ts
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-linux-x64
+          path: bench/results/
+          retention-days: 90

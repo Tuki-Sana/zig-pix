@@ -430,6 +430,7 @@ zig llvm-nm -D zig-out/linux-x86_64/libpict.so | grep pict_encode_avif  # シン
 ## 非機能 / 運用
 
 - [x] E2E テスト自動化 — `test/e2e/e2e.node.ts`（Node/Bun）+ `test/e2e/e2e.deno.ts`（Deno）を追加、CI 両ジョブに組み込み済み（decode → resize → WebP/AVIF パイプライン検証、`test/fixtures/e2e_input.png` 128×128 PNG fixture 使用）
-- [ ] メモリピーク計測・Sharp との比較
+- [x] Sharp との比較ベンチマーク — `bench/bench.ts`（zigpix vs sharp, decode+resize+AVIF, 中央値記録）+ `.github/workflows/bench.yml`（独立ジョブ、`continue-on-error: true`、artifact に `benchmark.json` / `benchmark.md` を 90 日保存）
+- [ ] メモリピーク計測（将来: `/usr/bin/time -v` または `heapUsed` で計測）
 - [x] Linux VPS クロスコンパイル動作確認 (`zig build linux`) — Phase 4 で確認済み
 - [x] `docs/operations.md` 更新 — Phase 7C で libavif 依存手順・FFI テスト手順を追記済み
