@@ -1,4 +1,4 @@
-# RFC: pict-zig-engine (High-Performance Image Pipeline)
+# RFC: zigpix (High-Performance Image Pipeline)
 
 ## 1. 概要
 
