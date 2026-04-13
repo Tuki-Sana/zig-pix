@@ -66,6 +66,15 @@ jobs:
       - name: Run FFI tests (Deno)
         run: deno run --allow-read --allow-ffi --allow-env test/ffi/test.deno.ts
 
+      - name: Run E2E tests (Node.js)
+        run: npx tsx test/e2e/e2e.node.ts
+
+      - name: Run E2E tests (Bun)
+        run: bun run test/e2e/e2e.node.ts
+
+      - name: Run E2E tests (Deno)
+        run: deno run --allow-read --allow-ffi --allow-env test/e2e/e2e.deno.ts
+
       - name: Stage npm package files
         run: |
           cp zig-out/lib/libpict.so npm/zigpix-linux-x64/
@@ -134,6 +143,15 @@ jobs:
 
       - name: Run FFI tests (Deno)
         run: deno run --allow-read --allow-ffi --allow-env test/ffi/test.deno.ts
+
+      - name: Run E2E tests (Node.js)
+        run: npx tsx test/e2e/e2e.node.ts
+
+      - name: Run E2E tests (Bun)
+        run: bun run test/e2e/e2e.node.ts
+
+      - name: Run E2E tests (Deno)
+        run: deno run --allow-read --allow-ffi --allow-env test/e2e/e2e.deno.ts
 
       - name: Stage npm package files
         run: |
