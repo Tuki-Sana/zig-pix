@@ -65,11 +65,21 @@ int pict_jpeg_decode(
     cinfo.out_color_space = JCS_RGB;
     (void)jpeg_start_decompress(&cinfo);
 
-    unsigned int  w          = cinfo.output_width;
-    unsigned int  h          = cinfo.output_height;
-    unsigned int  ch         = (unsigned int)cinfo.output_components; /* 3 for JCS_RGB */
+    unsigned int  w  = cinfo.output_width;
+    unsigned int  h  = cinfo.output_height;
+    unsigned int  ch = (unsigned int)cinfo.output_components; /* 3 for JCS_RGB */
+
+    /* Overflow-safe size calculation: reject if w*ch or h*row_stride wraps. */
+    if (ch != 0 && w > (size_t)-1 / ch) {
+        jpeg_destroy_decompress(&cinfo);
+        return -1;
+    }
     unsigned long row_stride = (unsigned long)w * ch;
-    unsigned long total      = (unsigned long)h * row_stride;
+    if (h != 0 && row_stride > (size_t)-1 / h) {
+        jpeg_destroy_decompress(&cinfo);
+        return -1;
+    }
+    unsigned long total = (unsigned long)h * row_stride;
 
     unsigned char *data = malloc(total);
     if (!data) {

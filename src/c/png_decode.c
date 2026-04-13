@@ -23,7 +23,8 @@ typedef struct {
 
 static void png_mem_read(png_structp png_ptr, png_bytep out, size_t length) {
     PngReadState *s = (PngReadState *)png_get_io_ptr(png_ptr);
-    if (s->offset + (unsigned long)length > s->len)
+    /* Compare via subtraction to avoid addition overflow: length > remaining */
+    if (length > s->len - s->offset)
         png_error(png_ptr, "PNG: read past end of buffer");
     memcpy(out, s->data + s->offset, length);
     s->offset += (unsigned long)length;
@@ -39,9 +40,13 @@ typedef struct {
 
 static void png_mem_write(png_structp png_ptr, png_bytep in, size_t length) {
     PngWriteState *s = (PngWriteState *)png_get_io_ptr(png_ptr);
+    /* Guard new_len addition against overflow. */
+    if (length > (size_t)-1 - s->len)
+        png_error(png_ptr, "PNG: write buffer overflow");
     unsigned long new_len = s->len + (unsigned long)length;
     if (new_len > s->cap) {
-        unsigned long new_cap = new_len * 2;
+        /* Guard new_cap * 2 against overflow; fall back to new_len if needed. */
+        unsigned long new_cap = (new_len <= (size_t)-1 / 2) ? new_len * 2 : new_len;
         if (new_cap < 4096) new_cap = 4096;
         unsigned char *nd = (unsigned char *)realloc(s->data, new_cap);
         if (!nd) png_error(png_ptr, "PNG: OOM during write");
@@ -119,8 +124,17 @@ int pict_png_decode(
     /* After transforms: ct is PNG_COLOR_TYPE_RGB or PNG_COLOR_TYPE_RGBA */
     unsigned int ch = (ct & PNG_COLOR_MASK_ALPHA) ? 4u : 3u;
 
+    /* Overflow-safe size calculation. */
+    if (ch != 0 && w > (size_t)-1 / ch) {
+        png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
+        return -1;
+    }
     unsigned long row_stride = (unsigned long)w * ch;
-    unsigned long total      = (unsigned long)h * row_stride;
+    if (h != 0 && row_stride > (size_t)-1 / h) {
+        png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
+        return -1;
+    }
+    unsigned long total = (unsigned long)h * row_stride;
 
     data = (unsigned char *)malloc(total);
     if (!data) {

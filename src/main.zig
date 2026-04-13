@@ -202,7 +202,9 @@ fn parseArgs(args: []const []const u8) !CliArgs {
         } else if (std.mem.eql(u8, arg, "-q") or std.mem.eql(u8, arg, "--quality")) {
             i += 1;
             if (i >= args.len) return error.MissingValue;
-            result.quality = try std.fmt.parseFloat(f32, args[i]);
+            const q = try std.fmt.parseFloat(f32, args[i]);
+            if (std.math.isNan(q) or q < 0.0 or q > 100.0) return error.InvalidQuality;
+            result.quality = q;
         } else if (std.mem.eql(u8, arg, "--lossless")) {
             result.lossless = true;
         } else {
