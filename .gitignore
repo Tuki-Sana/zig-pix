@@ -5,5 +5,9 @@ dist/
 # mise local override (グローバル設定があれば不要)
 # .mise.toml
 
+# Node.js
+node_modules/
+package-lock.json
+
 # OS
 .DS_Store

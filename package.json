@@ -1,0 +1,21 @@
+{
+  "name": "zigpix",
+  "version": "0.0.1",
+  "description": "High-performance image processing engine (Zig + libavif). Faster AVIF encoding than Sharp.",
+  "type": "module",
+  "scripts": {
+    "test:bun": "bash test/ffi/run.sh",
+    "test:node": "bash test/ffi/run.node.sh"
+  },
+  "keywords": ["avif", "webp", "image", "resize", "zig", "native"],
+  "license": "MIT",
+  "dependencies": {
+    "koffi": "^2.9.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

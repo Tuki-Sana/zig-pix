@@ -270,12 +270,14 @@ zig llvm-nm -D zig-out/linux-x86_64/libpict.so | grep pict_encode_avif  # シン
 
 **目的**: Bun 専用の `bun:ffi` から `koffi`（Node.js / Bun / Deno 互換）に移行し、Node.js ユーザーが zigpix を使えるようにする。
 
-- [ ] `koffi` npm パッケージの追加 (`package.json` 作成 or 既存に追記)
-- [ ] `test/ffi/test.node.ts` (または `test.js`) を koffi バインディングで作成
+- [x] `package.json` 作成 (`koffi` + `tsx` devDep、`"type": "module"`)
+- [x] `.gitignore` に `node_modules/` 追加
+- [x] `test/ffi/test.node.ts` を koffi バインディングで作成
   - `pict_decode_v2` / `pict_resize` / `pict_encode_webp` / `pict_encode_avif` / `pict_free_buffer` をバインド
-  - Case A〜G 相当のテストを Node.js で実行
-- [ ] `test/ffi/run.node.sh` — `zig build lib` + `node test/ffi/test.node.ts` を実行するスクリプト
-- [ ] Mac + Linux VPS 両方で全テスト PASS 確認
+  - Case A〜G (8件) を Node.js で実行。koffi.decode() でポインタ読み出し
+- [x] `test/ffi/run.node.sh` 作成 — `npm install + zig build lib + npx tsx` を実行
+- [x] Mac (Apple Silicon) で `npx tsx test/ffi/test.node.ts` → 全 8 件 PASS 確認
+- [ ] Linux VPS で全 8 件 PASS 確認
 
 ### Phase 8B — npm パッケージ配布 (pre-built native binary)
 
