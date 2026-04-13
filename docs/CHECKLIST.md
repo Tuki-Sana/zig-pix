@@ -81,6 +81,14 @@
 SIMD=off での結果は Phase 3B と同等（誤差範囲内）でリグレッションなし。
 SIMD=on での RGBA は約 32% 短縮（C vendor SIMD の影響より Zig SIMD が主因）。
 
+**各ライブラリの SIMD 対応状況 (Phase 3C 完了時点)**
+
+| ライブラリ | aarch64 | x86_64 | その他 |
+|---|---|---|---|
+| libjpeg-turbo | NEON (WITH_SIMD=1) | non-SIMD (NASM 未対応) | non-SIMD |
+| libpng | NEON (PNG_ARM_NEON_OPT=2) | SSE2 (PNG_INTEL_SSE_OPT=1) | なし |
+| libwebp | NEON (既存) | SSE2/SSE4.1 (既存) | なし |
+
 ---
 
 ## Phase 4 — マルチスレッド
