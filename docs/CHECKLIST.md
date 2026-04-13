@@ -520,3 +520,42 @@ zig llvm-nm -D zig-out/linux-x86_64/libpict.so | grep pict_encode_avif  # シン
 
 **難易度**: 高（Emscripten ツールチェーン、libaom ビルド設定、WASM バイナリ最適化）  
 **推奨着手条件**: 非機能（E2E・ベンチ）安定後 ✅（現在達成）
+
+---
+
+## Phase 11 候補・既知の制約事項
+
+### zigpix サーバーサイド統合（tsukasa-art PoC）
+
+`tsukasa-art` に zigpix を組み込み、Sharp を置き換えて AVIF 変換をサーバーサイドで実行。
+
+#### 実施内容（2026-04-13）
+- `zigpix@0.1.2` を tsukasa-art に追加（`bun add zigpix`）
+- `src/lib/utils/imageConvert.ts` 作成：`decode → resize（fit:inside）→ encodeAvif` 共通ユーティリティ
+- `upload.ts` / `upload-r18.ts` の Sharp を zigpix に置き換え、出力を `.webp` → `.avif` に変更
+- ローカルで curl テスト実施：ftyp brand "avif" ✅ 確認済み
+
+#### 本番デプロイ時に発生した問題
+
+**問題**: `bun:alpine` ベースのコンテナで zigpix が起動失敗
+
+```
+Error: Failed to load shared library: Error relocating
+  /app/node_modules/zigpix-linux-x64/libpict.so:
+  __vsnprintf_chk: symbol not found
+```
+
+**原因**: `libpict.so` は glibc 向けにビルドされているが、Alpine Linux は musl libc を使用しており `__vsnprintf_chk`（glibc 拡張）が存在しない。
+
+**対処**: Dockerfile のベースイメージを全ステージで `bun:alpine` → `bun:slim`（Debian ベース・glibc）に変更。あわせて Alpine busybox 固有の `addgroup`/`adduser` を Debian 標準の `groupadd`/`useradd` に修正。
+
+#### musl（Alpine）対応について
+
+zigpix を Alpine コンテナで使うには musl 向けの別配布が必要：
+
+- `zigpix-linux-x64-musl` パッケージを新設
+- `js/src/index.ts` のローダーに glibc/musl 判定を追加（現状は `platform + arch` のみ）
+- libavif/libaom を musl ツールチェーンで CI ビルド
+
+**工数**: 半日〜1日。需要が出たら将来フェーズで対応。  
+**当面の方針**: glibc 系（Debian/Ubuntu ベース）コンテナで運用。
