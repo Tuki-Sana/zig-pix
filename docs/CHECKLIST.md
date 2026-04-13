@@ -264,6 +264,40 @@ zig llvm-nm -D zig-out/linux-x86_64/libpict.so | grep pict_encode_avif  # シン
 
 ---
 
+## Phase 8 — Node.js 対応 + npm 配布
+
+### Phase 8A — Node.js koffi 対応
+
+**目的**: Bun 専用の `bun:ffi` から `koffi`（Node.js / Bun / Deno 互換）に移行し、Node.js ユーザーが zigpix を使えるようにする。
+
+- [ ] `koffi` npm パッケージの追加 (`package.json` 作成 or 既存に追記)
+- [ ] `test/ffi/test.node.ts` (または `test.js`) を koffi バインディングで作成
+  - `pict_decode_v2` / `pict_resize` / `pict_encode_webp` / `pict_encode_avif` / `pict_free_buffer` をバインド
+  - Case A〜G 相当のテストを Node.js で実行
+- [ ] `test/ffi/run.node.sh` — `zig build lib` + `node test/ffi/test.node.ts` を実行するスクリプト
+- [ ] Mac + Linux VPS 両方で全テスト PASS 確認
+
+### Phase 8B — npm パッケージ配布 (pre-built native binary)
+
+**目的**: ユーザーが `npm install zigpix` だけで使えるようにする。Zig のインストール不要。
+
+- [ ] プラットフォーム別 pre-built バイナリ戦略の確定
+  - `optionalDependencies` を使ったプラットフォーム別パッケージ構成
+  - 対象: `darwin-arm64`, `linux-x64`（最小構成）
+- [ ] GitHub Actions CI でクロスプラットフォームビルドを自動化
+  - Mac: `zig build lib` → `libpict.dylib`（AVIF 有効）
+  - Linux: VPS または GitHub Actions ubuntu runner で `zig build lib` → `libpict.so`（AVIF 有効）
+- [ ] `libavif` / `libaom` の静的リンク方針の確定（配布時はシステム依存を避ける）
+- [ ] npm publish フロー確立 (`npm pack` → テスト → `npm publish`)
+- [ ] `README.md` に `npm install zigpix` の使い方を追記
+
+### Phase 8C — Deno 対応（任意）
+
+- [ ] `Deno.dlopen` バインディングの作成
+- [ ] `deno run test/ffi/test.deno.ts` で Case A〜G PASS 確認
+
+---
+
 ## 非機能 / 運用
 
 - [ ] E2E テスト自動化 (`build.zig` に `zig build e2e` ステップ)
