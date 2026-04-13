@@ -93,7 +93,7 @@ export async function createAvifEncoder(wasmUrl?: string): Promise<AvifEncoder> 
   // Dynamic import so bundlers can split the factory into a separate chunk.
   // The factory is an ES module default export produced by Emscripten with
   // MODULARIZE=1 + EXPORT_ES6=1.
-  const factoryModule = await import(/* @vite-ignore */ './avif.js') as {
+  const factoryModule = await import(/* @vite-ignore */ '../dist/avif.js') as {
     default: EmscriptenFactory;
   };
 

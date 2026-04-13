@@ -115,6 +115,49 @@ interface AvifOptions {
 }
 ```
 
+## ブラウザ / Cloudflare Pages 対応（WASM）
+
+小〜中サイズの画像（〜1024×1024）はブラウザ上で直接 AVIF エンコードできます。  
+`zigpix-wasm` パッケージ（libavif + libaom を WebAssembly にコンパイル済み）を使います。
+
+```bash
+npm install zigpix-wasm
+```
+
+```typescript
+import createAvif from 'zigpix-wasm';          // Emscripten factory
+
+const Module = await createAvif();
+const ptr = Module._malloc(pixels.length);
+Module.HEAPU8.set(pixels, ptr);
+const outPtr = Module._avif_encode(ptr, width, height, 4, 60, 10); // quality=60 speed=10
+Module._free(ptr);
+if (outPtr) {
+  const size = Module._avif_get_out_size();
+  const avif = Module.HEAPU8.slice(outPtr, outPtr + size);
+  Module._avif_free_output(outPtr);
+  // avif は Uint8Array (ftyp brand: "avif" ✅)
+}
+```
+
+TypeScript ラッパー（`js/index.ts`）を使うとより簡潔に記述できます。詳細は [`wasm/README.md`](./wasm/README.md) を参照してください。
+
+### WASM パフォーマンス実測値
+
+環境: Chrome (macOS arm64), RGBA, quality=60, speed=10 最速設定、warm-up×1 除外・3回中央値
+
+| サイズ | Baseline (ms) | SIMD (ms) | Speedup |
+|--------|:-------------:|:---------:|:-------:|
+| 64×64      |  0.5 |  0.5 | 1.00× |
+| 256×256    |  5.1 |  4.2 | **1.21×** |
+| 512×512    | 16.5 | 14.6 | **1.13×** |
+| 1024×1024  | 60.5 | 53.1 | **1.14×** |
+
+> ※ speed=10（最速）の値。大画像・低 speed 設定では数秒〜数十秒になる場合あります。  
+> 1024×1024 を超える画像は Web Worker 上での実行を推奨します。
+
+---
+
 ## ベンチマーク
 
 3840×2160 PNG → 1920×1080 AVIF / macOS aarch64 (Apple M) / ReleaseFast
@@ -147,7 +190,8 @@ interface AvifOptions {
 | Bun | ✅ | ✅ |
 | Deno 2.x | ✅ | ✅ |
 | Windows | ❌ 未対応 | — |
-| Cloudflare Workers / Pages | ❌（WASM 版は将来対応予定）| — |
+| Cloudflare Pages（WASM） | ✅ `zigpix-wasm` | ✅ `zigpix-wasm` |
+| Cloudflare Workers | ❌（CPU 制限により非対応）| — |
 
 ## ライセンス
 

@@ -3,17 +3,25 @@
   "version": "0.1.0",
   "description": "Browser-side AVIF encoder for zigpix — powered by libavif + libaom compiled to WebAssembly",
   "type": "module",
-  "main": "./js/index.ts",
+  "exports": {
+    ".": "./dist/avif.js",
+    "./simd": "./dist/avif.simd.js",
+    "./typed": "./js/index.ts"
+  },
   "files": [
     "dist/avif.js",
     "dist/avif.wasm",
+    "dist/avif.simd.js",
+    "dist/avif.simd.wasm",
     "js/index.ts",
     "README.md"
   ],
   "scripts": {
     "build": "bash ../scripts/build-wasm.sh",
+    "build:simd": "bash ../scripts/build-wasm.sh --simd",
+    "build:all": "bash ../scripts/build-wasm.sh && bash ../scripts/build-wasm.sh --simd",
     "test": "node test.node.mjs"
   },
-  "keywords": ["avif", "wasm", "webassembly", "image", "encoder"],
+  "keywords": ["avif", "wasm", "webassembly", "image", "encoder", "browser", "cloudflare-pages"],
   "license": "MIT"
 }
