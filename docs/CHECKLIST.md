@@ -42,8 +42,11 @@
 
 - [x] `hPassRowSimd`: `@Vector(4, f32)` で 4ch 並列 H-pass 実装
 - [x] H-pass 正確性テスト 3 件 (scalar vs SIMD ±1.0 以内、ch=3 フォールバック)
-- [x] `vPassFullSimd`: `@Vector(4, f32)` で 4ch 並列 V-pass 実装 ← **今回完了**
+- [x] `vPassFullSimd`: `@Vector(4, f32)` で 4ch 並列 V-pass 実装
 - [x] V-pass 正確性テスト 3 件 (scalar vs SIMD ±1 以内、ch=3 フォールバック完全一致)
+- [x] `vPassOneDyRowScalar` / `vPassOneDyRowSimd` 抽出 + `RowSource` / `InterSource` / `RingSource` 導入
+- [x] `StreamingResizer.emitRow` を `vPassOneDyRow*` 経由に統一 (vPassFull と同一コア) ← **今回完了**
+- [x] emitRow ch=3 フォールバック回帰テスト追加 (expectEqualSlices で完全一致確認)
 
 ### Phase 3C — C vendor SIMD 有効化 (未着手)
 

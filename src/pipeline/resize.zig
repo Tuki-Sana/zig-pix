@@ -245,6 +245,58 @@ pub fn resizeLanczos3(
     vPassFull(inter, dst_data, sh, dh, dw, ch, scale_y);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// V-pass 行取得抽象 (RowSource)
+//
+// `vPassOneDyRow*` は V-pass カーネルの積算ロジックを 1 行単位で提供する。
+// 行データの取得元が「連続 inter バッファ」か「ring バッファ」かは RowSource で抽象化し、
+// vPassFull* と StreamingResizer.emitRow が同一の計算コアを共有できるようにする。
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// V-pass の行アクセス抽象。RowSink と対称な vtable 設計。
+/// `get(sy)` はソース空間の絶対行インデックス `sy` を受け取り行スライスを返す。
+/// ring バッファの場合、窓外の行は null を返す (→ InternalRingEviction)。
+const RowSource = struct {
+    ctx: *anyopaque,
+    getFn: *const fn (ctx: *anyopaque, sy: usize) ?[]const f32,
+
+    fn get(self: RowSource, sy: usize) ?[]const f32 {
+        return self.getFn(self.ctx, sy);
+    }
+};
+
+/// 連続 f32 中間バッファ用 RowSource — vPassFull* から使用する。
+/// clamped インデックスは常に [0, sh-1] に収まるため null は返さない。
+const InterSource = struct {
+    inter: []const f32,
+    row_stride: usize,
+
+    fn rowSource(self: *InterSource) RowSource {
+        return .{ .ctx = self, .getFn = getFn };
+    }
+
+    fn getFn(ctx: *anyopaque, sy: usize) ?[]const f32 {
+        const s: *InterSource = @ptrCast(@alignCast(ctx));
+        const base = sy * s.row_stride;
+        return s.inter[base .. base + s.row_stride];
+    }
+};
+
+/// RingBuffer(f32) 用 RowSource — StreamingResizer.emitRow から使用する。
+/// 窓外の行が要求された場合は null を返し、呼び出し元が InternalRingEviction を返す。
+const RingSource = struct {
+    ring: *const ring_mod.RingBuffer(f32),
+
+    fn rowSource(self: *RingSource) RowSource {
+        return .{ .ctx = self, .getFn = getFn };
+    }
+
+    fn getFn(ctx: *anyopaque, sy: usize) ?[]const f32 {
+        const s: *RingSource = @ptrCast(@alignCast(ctx));
+        return s.ring.getRow(sy);
+    }
+};
+
 /// V-pass ディスパッチャ: comptime simd_enabled で SIMD / スカラーを切り替える。
 fn vPassFull(inter: []const f32, dst: []u8, sh: u32, dh: u32, dw: u32, ch: u8, scale_y: f32) void {
     if (comptime simd_enabled) {
@@ -254,100 +306,138 @@ fn vPassFull(inter: []const f32, dst: []u8, sh: u32, dh: u32, dw: u32, ch: u8, s
     }
 }
 
-/// スカラー実装 (f32 リファレンス)。
+/// スカラー V-pass フルフレームラッパー。
+/// InterSource + vPassOneDyRowScalar を全 dy 行に適用する。
 fn vPassFullScalar(inter: []const f32, dst: []u8, sh: u32, dh: u32, dw: u32, ch: u8, scale_y: f32) void {
     const support = LANCZOS_A / @min(scale_y, 1.0);
     const row_stride = @as(usize, dw) * ch;
-
+    var src = InterSource{ .inter = inter, .row_stride = row_stride };
+    const source = src.rowSource();
     for (0..dh) |dy| {
-        const sy_center = (@as(f32, @floatFromInt(dy)) + 0.5) / scale_y - 0.5;
-        const sy_min: i64 = @intFromFloat(@floor(sy_center - support));
-        const sy_max: i64 = @intFromFloat(@ceil(sy_center + support));
+        // InterSource は clamped インデックスに対して null を返さない。
+        vPassOneDyRowScalar(
+            source,
+            dst[dy * row_stride .. (dy + 1) * row_stride],
+            @intCast(dy),
+            sh, dw, ch, scale_y, support,
+        ) catch unreachable;
+    }
+}
 
-        for (0..dw) |dx| {
-            var sum = [_]f64{0.0} ** 4;
-            var weight_sum: f64 = 0.0;
+/// SIMD V-pass フルフレームラッパー。
+/// InterSource + vPassOneDyRowSimd を全 dy 行に適用する。
+/// ch != 4 は vPassOneDyRowSimd 内のフォールバックでスカラー処理される。
+fn vPassFullSimd(inter: []const f32, dst: []u8, sh: u32, dh: u32, dw: u32, ch: u8, scale_y: f32) void {
+    const support = LANCZOS_A / @min(scale_y, 1.0);
+    const row_stride = @as(usize, dw) * ch;
+    var src = InterSource{ .inter = inter, .row_stride = row_stride };
+    const source = src.rowSource();
+    for (0..dh) |dy| {
+        // InterSource は clamped インデックスに対して null を返さない。
+        vPassOneDyRowSimd(
+            source,
+            dst[dy * row_stride .. (dy + 1) * row_stride],
+            @intCast(dy),
+            sh, dw, ch, scale_y, support,
+        ) catch unreachable;
+    }
+}
 
-            var sy: i64 = sy_min;
-            while (sy <= sy_max) : (sy += 1) {
-                const w = lanczosKernel(
-                    (@as(f32, @floatFromInt(sy)) - sy_center) * @min(scale_y, 1.0),
-                );
-                if (w == 0.0) continue;
-                const clamped: usize = @intCast(std.math.clamp(sy, 0, @as(i64, @intCast(sh)) - 1));
-                const base = clamped * row_stride + dx * ch;
-                for (0..ch) |c| sum[c] += @as(f64, inter[base + c]) * w;
-                weight_sum += w;
-            }
+// ─────────────────────────────────────────────────────────────────────────────
+// V-pass 1 行計算コア
+//
+// vPassFull* と StreamingResizer.emitRow が共有する計算の単一実装。
+// SIMD / スカラーの分岐はここのみに集約し、外側のループ構造は各呼び出し元が担う。
+// ─────────────────────────────────────────────────────────────────────────────
 
-            const dst_base = dy * row_stride + dx * ch;
-            for (0..ch) |c| {
-                dst[dst_base + c] = @intFromFloat(
-                    std.math.clamp(@round(sum[c] / weight_sum), 0.0, 255.0),
-                );
-            }
+/// V-pass スカラー 1 行コア (f64 積算)。
+/// RowSource 経由で行データを取得するため、inter バッファと ring の両方に対応する。
+fn vPassOneDyRowScalar(
+    source: RowSource,
+    dst_row: []u8,
+    dy: u32,
+    sh: u32,
+    dw: u32,
+    ch: u8,
+    scale_y: f32,
+    support_y: f32,
+) ResizeError!void {
+    const sy_center = (@as(f32, @floatFromInt(dy)) + 0.5) / scale_y - 0.5;
+    const sy_min: i64 = @intFromFloat(@floor(sy_center - support_y));
+    const sy_max: i64 = @intFromFloat(@ceil(sy_center + support_y));
+
+    for (0..dw) |dx| {
+        var sum = [_]f64{0.0} ** 4;
+        var weight_sum: f64 = 0.0;
+
+        var sy: i64 = sy_min;
+        while (sy <= sy_max) : (sy += 1) {
+            const w = lanczosKernel(
+                (@as(f32, @floatFromInt(sy)) - sy_center) * @min(scale_y, 1.0),
+            );
+            if (w == 0.0) continue;
+            const clamped: usize = @intCast(std.math.clamp(sy, 0, @as(i64, @intCast(sh)) - 1));
+            const row = source.get(clamped) orelse return ResizeError.InternalRingEviction;
+            for (0..ch) |c| sum[c] += @as(f64, row[dx * ch + c]) * w;
+            weight_sum += w;
+        }
+
+        const dst_base = dx * ch;
+        for (0..ch) |c| {
+            dst_row[dst_base + c] = @intFromFloat(
+                std.math.clamp(@round(sum[c] / weight_sum), 0.0, 255.0),
+            );
         }
     }
 }
 
-/// SIMD V-pass 実装 — Zig @Vector(4, f32) で 4 チャンネルを並列処理する。
-///
-/// 戦略:
-///   - ch == 4 (RGBA) のとき @Vector(4, f32) でチャンネル方向の積算を並列化する。
-///   - ch != 4 の場合はスカラーにフォールバックする。
-///   - 各 tap のカーネル重みは引き続きスカラー `lanczosKernel` で計算する。
-///   - f32 積算 (スカラーは f64) のため精度差が生じるが ±1 LSB 以内に収まる。
-///   - StreamingResizer.emitRow は独自インライン V-pass を持つため本関数の影響外。
-fn vPassFullSimd(inter: []const f32, dst: []u8, sh: u32, dh: u32, dw: u32, ch: u8, scale_y: f32) void {
+/// V-pass SIMD 1 行コア (@Vector(4, f32)、f32 積算)。
+/// ch == 4 のときのみ SIMD を使用し、それ以外は vPassOneDyRowScalar に委譲する。
+fn vPassOneDyRowSimd(
+    source: RowSource,
+    dst_row: []u8,
+    dy: u32,
+    sh: u32,
+    dw: u32,
+    ch: u8,
+    scale_y: f32,
+    support_y: f32,
+) ResizeError!void {
     if (ch != 4) {
-        // RGB (ch=3) など 4ch 以外はスカラーで処理する。
-        vPassFullScalar(inter, dst, sh, dh, dw, ch, scale_y);
-        return;
+        return vPassOneDyRowScalar(source, dst_row, dy, sh, dw, ch, scale_y, support_y);
     }
 
     const Vec4f = @Vector(4, f32);
-    const support = LANCZOS_A / @min(scale_y, 1.0);
-    const row_stride = @as(usize, dw) * 4;
+    const sy_center = (@as(f32, @floatFromInt(dy)) + 0.5) / scale_y - 0.5;
+    const sy_min: i64 = @intFromFloat(@floor(sy_center - support_y));
+    const sy_max: i64 = @intFromFloat(@ceil(sy_center + support_y));
 
-    for (0..dh) |dy| {
-        const sy_center = (@as(f32, @floatFromInt(dy)) + 0.5) / scale_y - 0.5;
-        const sy_min: i64 = @intFromFloat(@floor(sy_center - support));
-        const sy_max: i64 = @intFromFloat(@ceil(sy_center + support));
+    for (0..dw) |dx| {
+        var sum: Vec4f = @splat(0.0);
+        var weight_sum: f32 = 0.0;
 
-        for (0..dw) |dx| {
-            // 4 チャンネルを f32 ベクトルで並列積算する。
-            var sum: Vec4f = @splat(0.0);
-            var weight_sum: f32 = 0.0;
-
-            var sy: i64 = sy_min;
-            while (sy <= sy_max) : (sy += 1) {
-                const w: f32 = lanczosKernel(
-                    (@as(f32, @floatFromInt(sy)) - sy_center) * @min(scale_y, 1.0),
-                );
-                if (w == 0.0) continue;
-                const clamped: usize = @intCast(std.math.clamp(sy, 0, @as(i64, @intCast(sh)) - 1));
-                const base = clamped * row_stride + dx * 4;
-                // f32×4 を @Vector(4, f32) としてロードして重み付き加算する。
-                const px: Vec4f = .{
-                    inter[base + 0],
-                    inter[base + 1],
-                    inter[base + 2],
-                    inter[base + 3],
-                };
-                const wv: Vec4f = @splat(w);
-                sum += px * wv;
-                weight_sum += w;
-            }
-
-            // 正規化・クランプ・丸め → u8 書き出し
-            const inv_w: Vec4f = @splat(1.0 / weight_sum);
-            const result = sum * inv_w;
-            const dst_base = dy * row_stride + dx * 4;
-            dst[dst_base + 0] = @intFromFloat(std.math.clamp(@round(result[0]), 0.0, 255.0));
-            dst[dst_base + 1] = @intFromFloat(std.math.clamp(@round(result[1]), 0.0, 255.0));
-            dst[dst_base + 2] = @intFromFloat(std.math.clamp(@round(result[2]), 0.0, 255.0));
-            dst[dst_base + 3] = @intFromFloat(std.math.clamp(@round(result[3]), 0.0, 255.0));
+        var sy: i64 = sy_min;
+        while (sy <= sy_max) : (sy += 1) {
+            const w: f32 = lanczosKernel(
+                (@as(f32, @floatFromInt(sy)) - sy_center) * @min(scale_y, 1.0),
+            );
+            if (w == 0.0) continue;
+            const clamped: usize = @intCast(std.math.clamp(sy, 0, @as(i64, @intCast(sh)) - 1));
+            const row = source.get(clamped) orelse return ResizeError.InternalRingEviction;
+            const base = dx * 4;
+            const px: Vec4f = .{ row[base + 0], row[base + 1], row[base + 2], row[base + 3] };
+            const wv: Vec4f = @splat(w);
+            sum += px * wv;
+            weight_sum += w;
         }
+
+        const inv_w: Vec4f = @splat(1.0 / weight_sum);
+        const result = sum * inv_w;
+        const base = dx * 4;
+        dst_row[base + 0] = @intFromFloat(std.math.clamp(@round(result[0]), 0.0, 255.0));
+        dst_row[base + 1] = @intFromFloat(std.math.clamp(@round(result[1]), 0.0, 255.0));
+        dst_row[base + 2] = @intFromFloat(std.math.clamp(@round(result[2]), 0.0, 255.0));
+        dst_row[base + 3] = @intFromFloat(std.math.clamp(@round(result[3]), 0.0, 255.0));
     }
 }
 
@@ -476,41 +566,22 @@ pub const StreamingResizer = struct {
     }
 
     fn emitRow(self: *StreamingResizer, dy: u32, sink: RowSink) !void {
-        const dw = self.config.dst_width;
-        const ch = self.config.channels;
-        const sh = self.config.src_height;
-        const sy_center = (@as(f32, @floatFromInt(dy)) + 0.5) / self.scale_y - 0.5;
-        const sy_min: i64 = @intFromFloat(@floor(sy_center - self.support_y));
-        const sy_max: i64 = @intFromFloat(@ceil(sy_center + self.support_y));
-
-        for (0..dw) |dx| {
-            var sum = [_]f64{0.0} ** 4;
-            var weight_sum: f64 = 0.0;
-
-            var sy: i64 = sy_min;
-            while (sy <= sy_max) : (sy += 1) {
-                const w = lanczosKernel(
-                    (@as(f32, @floatFromInt(sy)) - sy_center) * @min(self.scale_y, 1.0),
-                );
-                if (w == 0.0) continue;
-
-                const clamped: usize = @intCast(
-                    std.math.clamp(sy, 0, @as(i64, @intCast(sh)) - 1),
-                );
-                const row = self.ring.getRow(clamped) orelse
-                    return ResizeError.InternalRingEviction;
-
-                for (0..ch) |c| sum[c] += @as(f64, row[dx * ch + c]) * w;
-                weight_sum += w;
-            }
-
-            for (0..ch) |c| {
-                self.out_row_buf[dx * ch + c] = @intFromFloat(
-                    std.math.clamp(@round(sum[c] / weight_sum), 0.0, 255.0),
-                );
-            }
+        // RingSource 経由で vPassOneDyRow* を呼び、vPassFull* と計算ロジックを共有する。
+        var ring_src = RingSource{ .ring = &self.ring };
+        const source = ring_src.rowSource();
+        if (comptime simd_enabled) {
+            try vPassOneDyRowSimd(
+                source, self.out_row_buf, dy,
+                self.config.src_height, self.config.dst_width, self.config.channels,
+                self.scale_y, self.support_y,
+            );
+        } else {
+            try vPassOneDyRowScalar(
+                source, self.out_row_buf, dy,
+                self.config.src_height, self.config.dst_width, self.config.channels,
+                self.scale_y, self.support_y,
+            );
         }
-
         try sink.writeRow(self.out_row_buf, dy);
     }
 };
@@ -899,4 +970,50 @@ test "vPassFullSimd: ch=3 (RGB) はスカラーフォールバックで完全一
     vPassFullSimd(&inter, &got, SH, DH, DW, CH, scale_y);  // フォールバック → 完全一致
 
     try std.testing.expectEqualSlices(u8, &ref, &got);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 3B.5: StreamingResizer.emitRow 整合テスト
+// ─────────────────────────────────────────────────────────────────────────────
+
+test "StreamingResizer (emitRow): ch=3 (RGB) フォールバック回帰" {
+    // ch=3 では simd_enabled の値に関わらず emitRow がスカラーフォールバックを使い、
+    // resizeLanczos3 (フルフレーム) と ±1 以内で一致することを確認する。
+    const alloc = std.testing.allocator;
+    const SW: u32 = 6;
+    const SH: u32 = 6;
+    const DW: u32 = 3;
+    const DH: u32 = 3;
+    const CH: u8 = 3;
+
+    var src: [SH * SW * CH]u8 = undefined;
+    for (0..SH) |y| for (0..SW) |x| {
+        const b = (y * SW + x) * CH;
+        src[b + 0] = @intCast(x * 40);
+        src[b + 1] = @intCast(y * 40);
+        src[b + 2] = 128;
+    };
+
+    // フルフレーム参照値 (ch=3 は常にスカラー)
+    var ref = [_]u8{0} ** (DH * DW * CH);
+    try resizeLanczos3(alloc, &src, &ref, .{
+        .src_width = SW, .src_height = SH,
+        .dst_width = DW, .dst_height = DH,
+        .channels = CH,
+    });
+
+    // ストリーミング (emitRow → ch=3 フォールバック)
+    var out = [_]u8{0} ** (DH * DW * CH);
+    var ss = SliceSink.init(&out, DW, CH);
+    var sr = try StreamingResizer.init(alloc, .{
+        .src_width = SW, .src_height = SH,
+        .dst_width = DW, .dst_height = DH,
+        .channels = CH,
+    });
+    defer sr.deinit();
+    for (0..SH) |y| try sr.feedRow(src[y * SW * CH .. (y + 1) * SW * CH], ss.rowSink());
+    try sr.flush(ss.rowSink());
+
+    // ch=3 は full-frame / streaming ともに同一コア (vPassOneDyRowScalar) を通るため完全一致する。
+    try std.testing.expectEqualSlices(u8, &ref, &out);
 }
