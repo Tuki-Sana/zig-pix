@@ -134,7 +134,7 @@ fn hPassRowScalar(src_row: []const u8, out_row: []f32, sw: u32, ch: u8, scale_x:
 ///   - ch != 4 (RGB 等) の場合はスカラーにフォールバックする。
 ///   - 各 tap のカーネル重みは引き続きスカラー `lanczosKernel` で計算する。
 ///   - f32 積算 (スカラーは f64) のため精度差が生じるが ±1 LSB 以内に収まる。
-///   - Phase 3B: H-pass のみ実装。V-pass は次タスクで対応。
+///   - Phase 3B 完了: H-pass / V-pass ともに SIMD 実装済み。
 fn hPassRowSimd(src_row: []const u8, out_row: []f32, sw: u32, ch: u8, scale_x: f32) void {
     if (ch != 4) {
         // RGB (ch=3) など 4ch 以外はスカラーで処理する。

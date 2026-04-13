@@ -9,7 +9,7 @@ const std = @import("std");
 //   zig build linux                  → Linux x86_64 cross-compile (ReleaseFast)
 //   zig build wasm                   → WebAssembly / WASI (ReleaseSmall)
 //   zig build lib                    → Shared library for FFI (.dylib / .so)
-//   zig build test                   → Unit tests (Zig のみ、C ライブラリ除く)
+//   zig build test                   → Unit tests (Zig + C ライブラリ、JPEG/PNG/WebP パス含む)
 //   zig build bench                  → Benchmarks (ReleaseFast)
 // ─────────────────────────────────────────────────────────────────────────────
 
