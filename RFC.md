@@ -28,3 +28,7 @@
 1. `pict-zig-engine` CLIバイナリの生成。
 2. JSランタイム(Bun/Node.js/Edge)から呼び出し可能なライブラリ形式の提供。
 3. 既存のSharp(Node.js)を超える実行速度と低いメモリピークの実現。
+
+## 6. 運用ドキュメント
+
+- 日常運用（Zig/mise、submodule、チェック手順）は `docs/operations.md` を参照。

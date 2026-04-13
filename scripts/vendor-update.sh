@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 # vendor-update.sh — vendor submodule を指定バージョンに更新する
 #
 # 使い方:

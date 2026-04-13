@@ -51,10 +51,8 @@ pub fn main() !void {
     };
 
     // Phase 2 でここに pipeline を実装する
-    _ = cli;
     _ = pict;
-
-    std.log.warn("Phase 0: pipeline not yet implemented. Input: {s}", .{cli.input});
+    std.log.warn("Phase 2: pipeline not yet implemented. Input: {s}", .{cli.input});
 }
 
 fn parseArgs(args: []const []const u8) !CliArgs {
