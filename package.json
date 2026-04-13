@@ -13,7 +13,9 @@
   },
   "files": [
     "js/dist",
-    "README.md"
+    "README.md",
+    "LICENSE",
+    "THIRD_PARTY_LICENSES"
   ],
   "scripts": {
     "build": "tsc",

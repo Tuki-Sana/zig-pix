@@ -299,8 +299,14 @@ zig llvm-nm -D zig-out/linux-x86_64/libpict.so | grep pict_encode_avif  # シン
 - [x] `libavif` / `libaom` 静的リンク方針の確定
   - **Phase 8B は動的リンク**（system libavif 必須）。静的リンクは Phase 8B+ に先送り
   - 理由: 静的リンクには libaom ソースビルドが必要で工数大
+- [x] ライセンス整備（npm publish 前に必須）
+  - `LICENSE`（MIT）をルートに追加
+  - `THIRD_PARTY_LICENSES` をルートに追加（libjpeg-turbo / zlib / libpng / libwebp / libavif / libaom）
+  - ルート `package.json` の `files` に `LICENSE` / `THIRD_PARTY_LICENSES` を追加
+  - `npm/zigpix-darwin-arm64/` / `npm/zigpix-linux-x64/` の `package.json` 同様に更新
+  - CI で `cp LICENSE THIRD_PARTY_LICENSES npm/zigpix-*/` をアーティファクト生成前に追加
 - [ ] npm publish フロー確立 (`npm pack` → テスト → `npm publish`)
-  - プラットフォームパッケージに `libpict.*` を配置してから publish
+  - `npm login` 後、プラットフォームパッケージ → メインの順に publish
 - [ ] `README.md` に `npm install zigpix` の使い方を追記
 
 ### Phase 8C — Deno 対応（任意）

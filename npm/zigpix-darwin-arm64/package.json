@@ -4,7 +4,7 @@
   "description": "zigpix native binary for macOS Apple Silicon (arm64)",
   "os": ["darwin"],
   "cpu": ["arm64"],
-  "files": ["libpict.dylib"],
+  "files": ["libpict.dylib", "LICENSE", "THIRD_PARTY_LICENSES"],
   "license": "MIT",
   "repository": {
     "type": "git",

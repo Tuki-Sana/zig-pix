@@ -41,11 +41,16 @@ jobs:
       - name: Run FFI tests (Node.js / koffi)
         run: npx tsx test/ffi/test.node.ts
 
+      - name: Stage npm package files
+        run: |
+          cp zig-out/lib/libpict.so npm/zigpix-linux-x64/
+          cp LICENSE THIRD_PARTY_LICENSES npm/zigpix-linux-x64/
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: libpict-linux-x64
-          path: zig-out/lib/libpict.so
+          path: npm/zigpix-linux-x64/
 
   # ── macOS arm64 (Apple Silicon) ───────────────────────────────────────────
   build-darwin-arm64:
@@ -76,8 +81,13 @@ jobs:
       - name: Run FFI tests (Node.js / koffi)
         run: npx tsx test/ffi/test.node.ts
 
+      - name: Stage npm package files
+        run: |
+          cp zig-out/lib/libpict.dylib npm/zigpix-darwin-arm64/
+          cp LICENSE THIRD_PARTY_LICENSES npm/zigpix-darwin-arm64/
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: libpict-darwin-arm64
-          path: zig-out/lib/libpict.dylib
+          path: npm/zigpix-darwin-arm64/

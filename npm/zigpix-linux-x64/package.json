@@ -4,7 +4,7 @@
   "description": "zigpix native binary for Linux x86_64",
   "os": ["linux"],
   "cpu": ["x64"],
-  "files": ["libpict.so"],
+  "files": ["libpict.so", "LICENSE", "THIRD_PARTY_LICENSES"],
   "license": "MIT",
   "repository": {
     "type": "git",
