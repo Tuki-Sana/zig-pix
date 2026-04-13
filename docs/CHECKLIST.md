@@ -324,21 +324,22 @@ zig llvm-nm -D zig-out/linux-x86_64/libpict.so | grep pict_encode_avif  # シン
 
 **切り戻し条件**: Linux x64 PoC が 48 時間以内に安定しなければ Phase 8C 先行へ切替。
 
-#### Step 1 — Linux x64 PoC（手動静的リンク）
+#### Step 1 — Linux x64 PoC（手動静的リンク）✅
 
-- [ ] libaom submodule 追加（タグ + コミット SHA ピン）
-- [ ] libavif submodule 追加（タグ + コミット SHA ピン）
-- [ ] VPS 上で libaom を cmake ビルド（decoder/docs/tests オフ、nasm 有効）
-- [ ] libavif を cmake ビルド（`-DAVIF_CODEC_DAV1D=OFF -DAVIF_BUILD_TESTS=OFF -DAVIF_CODEC_AOM=LOCAL`）
-- [ ] `zig build lib` で静的リンク成功
-- [ ] PoC 完了判定:
-  - `ldd libpict.so` に `libavif.so` / `libaom.so` が出ないこと
-  - Bun / Node.js 両方で FFI テスト Case E（AVIF 正常系）/ Case G（範囲外 null）PASS
+- [x] libaom submodule 追加（v3.12.1 / SHA: 10aece41）
+- [x] libavif submodule 追加（v1.4.1 / SHA: 6543b22b）
+- [x] VPS 上で libaom を cmake ビルド（decoder/docs/tests オフ、nasm 有効）
+- [x] libavif を cmake ビルド（`-DAVIF_CODEC_DAV1D=OFF -DAVIF_BUILD_TESTS=OFF -DAVIF_CODEC_AOM=LOCAL -DAVIF_LIBYUV=OFF`）
+  - FetchContent で libaom を自動ダウンロード・ビルド（`_deps/libaom-build/libaom.a`）
+- [x] `zig build lib -Davif=static` で静的リンク成功
+- [x] PoC 完了判定:
+  - `ldd libpict.so` に `libavif.so` / `libaom.so` が出ないこと ✅
+  - Bun / Node.js 両方で FFI テスト 全8件 PASS（Case E ftyp 確認・Case G null 確認）✅
 
-#### Step 2 — build.zig 統合
+#### Step 2 — build.zig 統合 ✅
 
-- [ ] `addLibAvifStatic` ヘルパー追加（libaom.a + libavif.a を Zig ビルドに組み込む）
-- [ ] `addLibAvifSystem` と comptime フラグで切り替え可能にする（`-Davif=static|system`）
+- [x] `addLibAvifStatic` ヘルパー追加（libavif.a + libaom.a を `addObjectFile` で直接リンク）
+- [x] `-Davif=static|system` オプション追加（デフォルト: system で後方互換維持）
 
 #### Step 3 — CI 更新
 

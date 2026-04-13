@@ -21,14 +21,31 @@ jobs:
         with:
           version: 0.13.0
 
-      - name: Install libavif + pkgconf
-        run: sudo apt-get install -y libavif-dev pkgconf
+      - name: Install build tools (cmake / nasm / ninja / g++)
+        run: sudo apt-get install -y cmake nasm ninja-build g++
 
-      - name: Build libpict.so
-        run: zig build lib -Doptimize=ReleaseFast
+      - name: Build libavif (static) — libaom via FetchContent
+        run: |
+          mkdir -p build/libavif && cd build/libavif
+          cmake ../../vendor/libavif -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=../../build/libavif-install \
+            -DAVIF_CODEC_AOM=LOCAL \
+            -DAVIF_CODEC_DAV1D=OFF \
+            -DAVIF_BUILD_TESTS=OFF \
+            -DAVIF_BUILD_APPS=OFF \
+            -DAVIF_LIBYUV=OFF \
+            -DBUILD_SHARED_LIBS=OFF
+          ninja
+          ninja install
 
-      - name: Verify libavif linkage
-        run: ldd zig-out/lib/libpict.so | grep avif
+      - name: Build libpict.so (static avif)
+        run: zig build lib -Doptimize=ReleaseFast -Davif=static
+
+      - name: Verify libavif/libaom not dynamically linked
+        run: |
+          echo "=== ldd output ===" && ldd zig-out/lib/libpict.so
+          ! ldd zig-out/lib/libpict.so | grep -E "libavif|libaom"
 
       - name: Install Node.js deps
         run: npm install
@@ -65,11 +82,32 @@ jobs:
         with:
           version: 0.13.0
 
-      - name: Install libavif
-        run: brew install libavif
+      - name: Install build tools (cmake)
+        # arm64 では nasm 不要（libaom は NASM なしでビルド可能）
+        run: brew install cmake ninja
 
-      - name: Build libpict.dylib
-        run: zig build lib -Doptimize=ReleaseFast
+      - name: Build libavif (static) — libaom via FetchContent
+        run: |
+          mkdir -p build/libavif && cd build/libavif
+          cmake ../../vendor/libavif -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=../../build/libavif-install \
+            -DAVIF_CODEC_AOM=LOCAL \
+            -DAVIF_CODEC_DAV1D=OFF \
+            -DAVIF_BUILD_TESTS=OFF \
+            -DAVIF_BUILD_APPS=OFF \
+            -DAVIF_LIBYUV=OFF \
+            -DBUILD_SHARED_LIBS=OFF
+          ninja
+          ninja install
+
+      - name: Build libpict.dylib (static avif)
+        run: zig build lib -Doptimize=ReleaseFast -Davif=static
+
+      - name: Verify libavif/libaom not dynamically linked
+        run: |
+          echo "=== otool -L output ===" && otool -L zig-out/lib/libpict.dylib
+          ! otool -L zig-out/lib/libpict.dylib | grep -E "libavif|libaom"
 
       - name: Install Node.js deps
         run: npm install
