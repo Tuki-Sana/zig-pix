@@ -1,0 +1,9 @@
+.zig-cache/
+zig-out/
+dist/
+
+# mise local override (グローバル設定があれば不要)
+# .mise.toml
+
+# OS
+.DS_Store
