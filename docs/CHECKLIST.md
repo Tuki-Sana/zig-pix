@@ -305,9 +305,14 @@ zig llvm-nm -D zig-out/linux-x86_64/libpict.so | grep pict_encode_avif  # シン
   - ルート `package.json` の `files` に `LICENSE` / `THIRD_PARTY_LICENSES` を追加
   - `npm/zigpix-darwin-arm64/` / `npm/zigpix-linux-x64/` の `package.json` 同様に更新
   - CI で `cp LICENSE THIRD_PARTY_LICENSES npm/zigpix-*/` をアーティファクト生成前に追加
-- [ ] npm publish フロー確立 (`npm pack` → テスト → `npm publish`)
-  - `npm login` 後、プラットフォームパッケージ → メインの順に publish
-- [ ] `README.md` に `npm install zigpix` の使い方を追記
+- [x] npm publish フロー確立 (`npm pack` → テスト → `npm publish`)
+  - `npm login` + Granular Access Token (Bypass 2FA) で認証
+  - プラットフォームパッケージ → メインの順に publish
+  - `zigpix@0.0.2` / `zigpix-darwin-arm64@0.0.2` / `zigpix-linux-x64@0.0.2` を公開済み
+  - E2E テスト（別ディレクトリで `npm install zigpix` → decode / resize / encodeWebP / encodeAvif 全 PASS）確認済み
+- [x] `README.md` に `npm install zigpix` の使い方を追記
+  - インストール手順・ESM 明記・API リファレンス・トラブルシューティング・動作環境表を追加
+  - Codex レビュー指摘（ESM明記・encodeAvif null条件・トラブルシュート）対応済み
 
 ### Phase 8C — Deno 対応（任意）
 
