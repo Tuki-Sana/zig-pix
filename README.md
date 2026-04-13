@@ -56,7 +56,7 @@ const resized = resize(image, { width: 1920 });
 const webp = encodeWebP(resized, { quality: 92 });
 writeFileSync("output.webp", webp);
 
-// AVIF エンコード（libavif が必要）
+// AVIF エンコード（libavif / libaom は静的リンク済み、追加インストール不要）
 const avif = encodeAvif(resized, { quality: 60, speed: 10 });
 if (avif) writeFileSync("output.avif", avif);
 ```

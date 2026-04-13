@@ -268,7 +268,8 @@ zig llvm-nm -D zig-out/linux-x86_64/libpict.so | grep pict_encode_avif  # シン
 
 ### Phase 8A — Node.js koffi 対応
 
-**目的**: Bun 専用の `bun:ffi` から `koffi`（Node.js / Bun / Deno 互換）に移行し、Node.js ユーザーが zigpix を使えるようにする。
+**目的**: Bun 専用の `bun:ffi` から `koffi`（Node.js / Bun 互換）に移行し、Node.js ユーザーが zigpix を使えるようにする。
+> 注: koffi は当初 Deno 互換を期待していたが、Phase 8C Step 0 PoC で out-pointer 受け渡しが失敗したため、Deno 対応は `Deno.dlopen` ベースの `index.deno.ts` として別実装した。
 
 - [x] `package.json` 作成 (`koffi` + `tsx` devDep、`"type": "module"`)
 - [x] `.gitignore` に `node_modules/` 追加
