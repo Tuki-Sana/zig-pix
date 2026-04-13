@@ -266,13 +266,49 @@ try {
       pass("F: encode_avif null input — returned null as expected");
     }
   }
+
+  // ── Case G: pict_encode_avif out-of-range quality/speed returns null ──
+  // quality=255 (>100) and speed=255 (>10) must be rejected at the FFI boundary.
+  {
+    const W = 4;
+    const H = 4;
+    const CH = 3;
+    const pixels = new Uint8Array(W * H * CH).fill(128);
+    const outLen = new BigUint64Array(1);
+
+    const resultQ = symbols.pict_encode_avif(
+      ptr(pixels),
+      W, H, CH,
+      255,  // quality out of range (>100)
+      8,
+      ptr(outLen),
+    );
+    if (resultQ !== null) {
+      fail("G: encode_avif out-of-range quality", "expected null for quality=255, got non-null");
+    } else {
+      pass("G: encode_avif quality=255 — returned null as expected");
+    }
+
+    const resultS = symbols.pict_encode_avif(
+      ptr(pixels),
+      W, H, CH,
+      60,
+      255,  // speed out of range (>10)
+      ptr(outLen),
+    );
+    if (resultS !== null) {
+      fail("G: encode_avif out-of-range speed", "expected null for speed=255, got non-null");
+    } else {
+      pass("G: encode_avif speed=255 — returned null as expected");
+    }
+  }
 } finally {
   lib.close();
 }
 
-const TOTAL = 6;
+const TOTAL = 8;
 if (failed > 0) {
-  console.error(`\n${failed} test(s) FAILED.`);
+  console.error(`\n${failed} / ${TOTAL} test(s) FAILED.`);
   process.exit(1);
 } else {
   console.log(`\nAll ${TOTAL} tests passed.`);

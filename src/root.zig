@@ -206,6 +206,7 @@ export fn pict_encode_avif(
     if (comptime !has_avif) return null;
     if (pixels == null or out_len == null or width == 0 or height == 0 or channels == 0) return null;
     if (channels != 3 and channels != 4) return null;
+    if (quality > 100 or speed > 10) return null;
     const pixel_size = mul3SizeChecked(width, height, channels) orelse return null;
 
     const img = decode.ImageBuffer{

@@ -50,7 +50,7 @@ int pict_avif_encode(
     avifRGBImageSetDefaults(&rgb, image);
     rgb.format   = (channels == 4) ? AVIF_RGB_FORMAT_RGBA : AVIF_RGB_FORMAT_RGB;
     rgb.pixels   = (uint8_t *)pixels;
-    rgb.rowBytes = width * (uint32_t)channels;
+    rgb.rowBytes = (uint32_t)((size_t)width * (size_t)channels);
 
     avifResult conv_result = avifImageRGBToYUV(image, &rgb);
     if (conv_result != AVIF_RESULT_OK) {
