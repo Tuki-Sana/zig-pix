@@ -30,7 +30,16 @@ pub fn build(b: *std.Build) void {
     const build_options = b.addOptions();
     build_options.addOption(bool, "simd_enabled", simd_enabled);
 
-    // ── AVIF オプション ────────────────────────────────────────────────────────
+    // ── AVIF リンクモード ─────────────────────────────────────────────────────
+    // -Davif=system (デフォルト): システムの libavif を動的リンク (apt install libavif-dev 必要)
+    // -Davif=static            : 事前ビルド済みの静的ライブラリを使用 (追加インストール不要)
+    const AvifMode = enum { system, static };
+    const avif_mode = b.option(
+        AvifMode,
+        "avif",
+        "libavif linking mode: system (default) or static",
+    ) orelse .system;
+
     // has_avif=true は CLI 専用 (pict_mod_cli)。他の artifact はすべて false。
     const no_avif_options = b.addOptions();
     no_avif_options.addOption(bool, "has_avif", false);
@@ -76,7 +85,10 @@ pub fn build(b: *std.Build) void {
     });
     cli.root_module.addImport("pict", pict_mod_cli); // pict_mod_cli (has_avif=true)
     addCLibraries(b, cli);
-    addLibAvifSystem(b, cli);
+    switch (avif_mode) {
+        .system => addLibAvifSystem(b, cli),
+        .static => addLibAvifStatic(b, cli),
+    }
     cli.addCSourceFiles(.{
         .files = &.{"src/c/avif_encode.c"},
         .flags = &.{"-std=c11"},
@@ -134,7 +146,10 @@ pub fn build(b: *std.Build) void {
     ffi_lib.root_module.addOptions("build_options", build_options);
     ffi_lib.root_module.addOptions("avif_options", avif_options); // has_avif=true
     addCLibraries(b, ffi_lib);
-    addLibAvifSystem(b, ffi_lib);
+    switch (avif_mode) {
+        .system => addLibAvifSystem(b, ffi_lib),
+        .static => addLibAvifStatic(b, ffi_lib),
+    }
     ffi_lib.addCSourceFiles(.{
         .files = &.{"src/c/avif_encode.c"},
         .flags = &.{"-std=c11"},
@@ -733,6 +748,29 @@ fn addLibwebp(b: *std.Build, artifact: *std.Build.Step.Compile) void {
 // 分岐は artifact の target OS で行う (ホスト OS ではない)。
 // ffi_lib_linux (linux_target) には呼ばれない設計 (has_avif=false のため)。
 // 注: b.fatal は Zig 0.13.0 未収録のため stderr + std.process.exit(1) で代替している。
+// ── addLibAvifStatic ─────────────────────────────────────────────────────────
+// 事前ビルド済みの静的ライブラリを使用する。
+// VPS / CI での事前ビルド手順:
+//   mkdir -p build/libavif && cd build/libavif
+//   cmake ../../vendor/libavif -G Ninja -DCMAKE_BUILD_TYPE=Release \
+//     -DCMAKE_INSTALL_PREFIX=../../build/libavif-install \
+//     -DAVIF_CODEC_AOM=LOCAL -DAVIF_CODEC_DAV1D=OFF \
+//     -DAVIF_BUILD_TESTS=OFF -DAVIF_BUILD_APPS=OFF -DAVIF_LIBYUV=OFF \
+//     -DBUILD_SHARED_LIBS=OFF
+//   ninja && ninja install
+//
+// 静的ライブラリのパス:
+//   build/libavif-install/lib/libavif.a
+//   build/libavif/_deps/libaom-build/libaom.a  (FetchContent による libaom ビルド)
+fn addLibAvifStatic(b: *std.Build, artifact: *std.Build.Step.Compile) void {
+    artifact.addIncludePath(b.path("build/libavif-install/include"));
+    artifact.addObjectFile(b.path("build/libavif-install/lib/libavif.a"));
+    artifact.addObjectFile(b.path("build/libavif/_deps/libaom-build/libaom.a"));
+    artifact.linkSystemLibrary("pthread");
+    artifact.linkSystemLibrary("m");
+    artifact.linkLibC();
+}
+
 fn addLibAvifSystem(b: *std.Build, artifact: *std.Build.Step.Compile) void {
     const target_os = artifact.rootModuleTarget().os.tag;
     const is_macos  = target_os == .macos;
