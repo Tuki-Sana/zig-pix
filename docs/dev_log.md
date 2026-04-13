@@ -13,3 +13,4 @@
 - GNU `time -v`（macOS は `gtime -v`）で `bun run test/ffi/test.ts` と、sharp がある場合は `bench/bench.ts` のピーク RSS を出すシェルを追加。
 - README に「メモリ（ピーク RSS）」節と表の骨子を追加。**数値は Linux VPS 等でスクリプト実行後に表へ転記**する。
 - npm script: `npm run mem:peak`
+- `mktemp -t` にラベルの `:` / 空白が渡ると Linux で失敗するため、`mktemp_for_label` でサニタイズ。GNU time 検出は `/usr/bin/true` に統一。

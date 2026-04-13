@@ -18,16 +18,25 @@ cd "$ROOT"
 
 pick_gnu_time() {
   if [[ "$(uname -s)" == "Linux" ]]; then
-    if /usr/bin/time -v true 2>&1 | grep -q "Maximum resident"; then
+    if /usr/bin/time -v /usr/bin/true 2>&1 | grep -Fq "Maximum resident set size"; then
       echo "/usr/bin/time -v"
       return 0
     fi
   fi
-  if command -v gtime >/dev/null 2>&1 && gtime -v true 2>&1 | grep -q "Maximum resident"; then
+  if command -v gtime >/dev/null 2>&1 && gtime -v /usr/bin/true 2>&1 | grep -Fq "Maximum resident set size"; then
     echo "gtime -v"
     return 0
   fi
   return 1
+}
+
+# mktemp -t は ':' や空白を含むと失敗するため、テンプレート用に安全な文字列へ
+mktemp_for_label() {
+  local raw="$1"
+  local safe
+  safe="$(printf '%s' "$raw" | tr -c 'a-zA-Z0-9._-' '_' | cut -c1-48)"
+  [[ -n "$safe" ]] || safe="run"
+  mktemp -t "zigpix-mem-${safe}.XXXXXX"
 }
 
 TIME_PREFIX="$(pick_gnu_time)" || {
@@ -59,7 +68,7 @@ run_one() {
   local name="$1"
   shift
   local log
-  log="$(mktemp -t "zigpix-mem-${name}.XXXXXX.log")"
+  log="$(mktemp_for_label "$name")"
   echo ""
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
   echo " ${name}"
