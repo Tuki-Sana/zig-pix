@@ -10,3 +10,9 @@
 [submodule "vendor/libwebp"]
 	path = vendor/libwebp
 	url = https://github.com/webmproject/libwebp.git
+[submodule "vendor/libaom"]
+	path = vendor/libaom
+	url = https://aomedia.googlesource.com/aom
+[submodule "vendor/libavif"]
+	path = vendor/libavif
+	url = https://github.com/AOMediaCodec/libavif
