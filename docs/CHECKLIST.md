@@ -318,6 +318,41 @@ zig llvm-nm -D zig-out/linux-x86_64/libpict.so | grep pict_encode_avif  # シン
   - 非対応 platform/arch で即時エラー（`unsupported platform/architecture` メッセージ）
   - arm64 以外を x64 にサイレントフォールバックする問題を解消
 
+### Phase 8B+ — libavif / libaom 静的リンク（`npm install` だけで動く）
+
+**目的**: `libavif-dev` のシステムインストールを不要にする。`npm install zigpix` だけで AVIF エンコードが動く状態を実現。
+
+**切り戻し条件**: Linux x64 PoC が 48 時間以内に安定しなければ Phase 8C 先行へ切替。
+
+#### Step 1 — Linux x64 PoC（手動静的リンク）
+
+- [ ] libaom submodule 追加（タグ + コミット SHA ピン）
+- [ ] libavif submodule 追加（タグ + コミット SHA ピン）
+- [ ] VPS 上で libaom を cmake ビルド（decoder/docs/tests オフ、nasm 有効）
+- [ ] libavif を cmake ビルド（`-DAVIF_CODEC_DAV1D=OFF -DAVIF_BUILD_TESTS=OFF -DAVIF_CODEC_AOM=LOCAL`）
+- [ ] `zig build lib` で静的リンク成功
+- [ ] PoC 完了判定:
+  - `ldd libpict.so` に `libavif.so` / `libaom.so` が出ないこと
+  - Bun / Node.js 両方で FFI テスト Case E（AVIF 正常系）/ Case G（範囲外 null）PASS
+
+#### Step 2 — build.zig 統合
+
+- [ ] `addLibAvifStatic` ヘルパー追加（libaom.a + libavif.a を Zig ビルドに組み込む）
+- [ ] `addLibAvifSystem` と comptime フラグで切り替え可能にする（`-Davif=static|system`）
+
+#### Step 3 — CI 更新
+
+- [ ] Linux: `apt install cmake nasm` 追加、`apt install libavif-dev` 削除
+- [ ] macOS: `brew install cmake`（nasm 不要化の可否を確認して分岐明確化）
+- [ ] 両 runner で FFI テスト全件 PASS 確認
+
+#### Step 4 — 仕上げ
+
+- [ ] `THIRD_PARTY_LICENSES` に libaom / libavif の正確なバージョン・SHA を記載
+- [ ] `npm 0.1.0` で publish（静的リンク版として初の minor バージョン）
+
+---
+
 ### Phase 8C — Deno 対応（任意）
 
 - [ ] `Deno.dlopen` バインディングの作成
