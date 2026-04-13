@@ -31,6 +31,7 @@
     "zig",
     "native"
   ],
+  "author": "月村つかさ",
   "license": "MIT",
   "repository": {
     "type": "git",
