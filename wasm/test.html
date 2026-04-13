@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>pict-zig-engine WASM — AVIF encode test</title>
+  <style>
+    body { font-family: monospace; max-width: 800px; margin: 2rem auto; padding: 0 1rem; }
+    h1 { font-size: 1.2rem; }
+    #log { background: #111; color: #0f0; padding: 1rem; white-space: pre; overflow: auto; min-height: 10rem; border-radius: 4px; }
+    .ok  { color: #0f0; }
+    .err { color: #f44; }
+    .info { color: #aaa; }
+    canvas { border: 1px solid #aaa; margin: 0.5rem 0; }
+    img { max-width: 256px; border: 1px solid #aaa; }
+    #controls { margin: 1rem 0; }
+    input[type=range] { width: 200px; }
+  </style>
+</head>
+<body>
+<h1>pict-zig-engine WASM — AVIF encode test</h1>
+
+<div id="controls">
+  <label>Quality: <input type="range" id="quality" min="0" max="100" value="60"> <span id="qval">60</span></label><br><br>
+  <label>Speed:   <input type="range" id="speed"   min="0" max="10"  value="10"> <span id="sval">10</span></label><br><br>
+  <button id="runBtn">Run Test (256×256 gradient)</button>
+</div>
+
+<div>
+  <canvas id="src" width="256" height="256"></canvas>
+  <span> → </span>
+  <img id="result" alt="AVIF result">
+</div>
+
+<div id="log">Loading WASM module...</div>
+
+<script type="module">
+  const log = document.getElementById('log');
+  const srcCanvas = document.getElementById('src');
+  const resultImg = document.getElementById('result');
+
+  function write(cls, msg) {
+    log.innerHTML += `<span class="${cls}">${msg}</span>\n`;
+    log.scrollTop = log.scrollHeight;
+  }
+  function info(msg)  { write('info', '[INFO] ' + msg); }
+  function ok(msg)    { write('ok',   '[ OK ] ' + msg); }
+  function fail(msg)  { write('err',  '[FAIL] ' + msg); }
+
+  // Range slider display
+  const quality = document.getElementById('quality');
+  const speed   = document.getElementById('speed');
+  quality.oninput = () => document.getElementById('qval').textContent = quality.value;
+  speed.oninput   = () => document.getElementById('sval').textContent = speed.value;
+
+  // -------------------------------------------------------------------------
+  // Load Emscripten module
+  // -------------------------------------------------------------------------
+  let Module;
+  log.textContent = '';
+
+  info('Loading avif.js + avif.wasm ...');
+  try {
+    const factory = (await import('./dist/avif.js')).default;
+    Module = await factory();
+    ok(`WASM module loaded`);
+    const verPtr = Module._avif_version();
+    const heap = Module.HEAPU8;
+    let end = verPtr;
+    while (heap[end]) end++;
+    const version = new TextDecoder().decode(heap.subarray(verPtr, end));
+    ok(`libavif version: ${version}`);
+  } catch (e) {
+    fail('Failed to load WASM: ' + e.message);
+    throw e;
+  }
+
+  // -------------------------------------------------------------------------
+  // Draw a test pattern on the canvas
+  // -------------------------------------------------------------------------
+  const ctx = srcCanvas.getContext('2d');
+  const W = 256, H = 256;
+  const imgData = ctx.createImageData(W, H);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const i = (y * W + x) * 4;
+      imgData.data[i]     = x;            // R
+      imgData.data[i + 1] = y;            // G
+      imgData.data[i + 2] = (x + y) & 255; // B
+      imgData.data[i + 3] = 255;          // A
+    }
+  }
+  ctx.putImageData(imgData, 0, 0);
+  info('Test pattern drawn on canvas (256×256 RGBA)');
+
+  // -------------------------------------------------------------------------
+  // Run encode test
+  // -------------------------------------------------------------------------
+  document.getElementById('runBtn').addEventListener('click', () => {
+    const q = parseInt(quality.value);
+    const s = parseInt(speed.value);
+
+    info(`Encoding... quality=${q} speed=${s}`);
+    resultImg.src = '';
+
+    const pixels = imgData.data;  // Uint8ClampedArray, 4 channels
+    const channels = 4;
+
+    // Copy pixels into WASM heap
+    const inputPtr = Module._malloc(pixels.length);
+    if (!inputPtr) { fail('malloc failed'); return; }
+    Module.HEAPU8.set(pixels, inputPtr);
+
+    const t0 = performance.now();
+    const outPtr = Module._avif_encode(inputPtr, W, H, channels, q, s);
+    const elapsed = (performance.now() - t0).toFixed(1);
+    Module._free(inputPtr);
+
+    if (!outPtr) {
+      fail('avif_encode returned NULL');
+      return;
+    }
+
+    const outSize = Module._avif_get_out_size();
+    const avifBytes = Module.HEAPU8.slice(outPtr, outPtr + outSize);
+    Module._avif_free_output(outPtr);
+
+    ok(`Encoded in ${elapsed} ms — ${outSize} bytes (${(outSize/1024).toFixed(1)} KB)`);
+
+    // Verify ftyp header
+    const header = avifBytes.subarray(0, 12);
+    const brand = new TextDecoder().decode(header.subarray(8, 12));
+    if (brand === 'avif' || brand === 'avis') {
+      ok(`ftyp brand: "${brand}" ✓`);
+    } else {
+      fail(`ftyp brand: "${brand}" — unexpected`);
+    }
+
+    // Display result
+    const blob = new Blob([avifBytes], { type: 'image/avif' });
+    const url  = URL.createObjectURL(blob);
+    resultImg.onload = () => {
+      ok('Browser decoded AVIF successfully ✓');
+      URL.revokeObjectURL(url);
+    };
+    resultImg.onerror = () => {
+      fail('Browser could not decode AVIF (browser may not support AVIF, but encoding succeeded)');
+      URL.revokeObjectURL(url);
+    };
+    resultImg.src = url;
+  });
+</script>
+</body>
+</html>
