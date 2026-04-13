@@ -8,6 +8,11 @@
 const std = @import("std");
 const math = std.math;
 const ring_mod = @import("../mem/ring.zig");
+const build_options = @import("build_options");
+
+/// ビルド時 SIMD フラグ。`zig build -Dsimd=true` で有効化、デフォルト false。
+/// Phase 3B でこのフラグが true のとき NEON / SSE 実装に切り替わる。
+pub const simd_enabled: bool = build_options.simd_enabled;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 型定義
@@ -84,8 +89,17 @@ pub const SliceSink = struct {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// 1 行 (u8) を Lanczos-3 H-pass して f32 行に変換する。
-/// full-frame 版と StreamingResizer の両方がこれを呼ぶ (重複なし)。
+/// comptime simd_enabled で SIMD / スカラーを切り替える (Phase 3A: スタブのみ)。
 fn hPassRow(src_row: []const u8, out_row: []f32, sw: u32, ch: u8, scale_x: f32) void {
+    if (comptime simd_enabled) {
+        hPassRowSimd(src_row, out_row, sw, ch, scale_x);
+    } else {
+        hPassRowScalar(src_row, out_row, sw, ch, scale_x);
+    }
+}
+
+/// スカラー実装 (f32 リファレンス)。SIMD 実装の正解基準として残す。
+fn hPassRowScalar(src_row: []const u8, out_row: []f32, sw: u32, ch: u8, scale_x: f32) void {
     const dw = out_row.len / ch;
     const support = LANCZOS_A / @min(scale_x, 1.0);
 
@@ -111,6 +125,11 @@ fn hPassRow(src_row: []const u8, out_row: []f32, sw: u32, ch: u8, scale_x: f32) 
         }
         for (0..ch) |c| out_row[dx * ch + c] = @floatCast(sum[c] / weight_sum);
     }
+}
+
+/// SIMD 実装スタブ — Phase 3B で NEON / SSE 実装に置き換える。
+fn hPassRowSimd(src_row: []const u8, out_row: []f32, sw: u32, ch: u8, scale_x: f32) void {
+    hPassRowScalar(src_row, out_row, sw, ch, scale_x);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -173,7 +192,17 @@ pub fn resizeLanczos3(
     vPassFull(inter, dst_data, sh, dh, dw, ch, scale_y);
 }
 
+/// V-pass ディスパッチャ: comptime simd_enabled で SIMD / スカラーを切り替える。
 fn vPassFull(inter: []const f32, dst: []u8, sh: u32, dh: u32, dw: u32, ch: u8, scale_y: f32) void {
+    if (comptime simd_enabled) {
+        vPassFullSimd(inter, dst, sh, dh, dw, ch, scale_y);
+    } else {
+        vPassFullScalar(inter, dst, sh, dh, dw, ch, scale_y);
+    }
+}
+
+/// スカラー実装 (f32 リファレンス)。
+fn vPassFullScalar(inter: []const f32, dst: []u8, sh: u32, dh: u32, dw: u32, ch: u8, scale_y: f32) void {
     const support = LANCZOS_A / @min(scale_y, 1.0);
     const row_stride = @as(usize, dw) * ch;
 
@@ -206,6 +235,11 @@ fn vPassFull(inter: []const f32, dst: []u8, sh: u32, dh: u32, dw: u32, ch: u8, s
             }
         }
     }
+}
+
+/// SIMD 実装スタブ — Phase 3B で NEON / SSE 実装に置き換える。
+fn vPassFullSimd(inter: []const f32, dst: []u8, sh: u32, dh: u32, dw: u32, ch: u8, scale_y: f32) void {
+    vPassFullScalar(inter, dst, sh, dh, dw, ch, scale_y);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -558,4 +592,29 @@ test "StreamingResizer: 8x8→4x4 縮小 (チェッカーボード)" {
 
 test "StreamingResizer: 4x4→8x8 拡大" {
     try streamMatchesFullframe(4, 4, 8, 8);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 3A: SIMD トグル scaffold テスト
+// ─────────────────────────────────────────────────────────────────────────────
+
+test "simd_enabled: bool 型でアクセス可能" {
+    // true / false どちらのビルドでもクラッシュしないことを確認する。
+    const x: bool = simd_enabled;
+    _ = x;
+}
+
+test "simd toggle: hPassRow + vPassFull がどちらのパスでもクラッシュしない" {
+    // simd_enabled の値に関わらず resize 結果が一致することを確認する。
+    // (スタブはスカラーを呼ぶため常に同じ値になる。Phase 3B で SIMD 実装に置換後も
+    //  streamMatchesFullframe テストが正解基準として機能する。)
+    const src = [_]u8{ 100, 150, 200, 255 } ** (2 * 2);
+    var dst = [_]u8{0} ** (2 * 2 * 4);
+    try resizeLanczos3(std.testing.allocator, &src, &dst, .{
+        .src_width = 2, .src_height = 2, .dst_width = 2, .dst_height = 2,
+    });
+    for (0..4) |i| {
+        const diff: i16 = @as(i16, src[i]) - @as(i16, dst[i]);
+        try std.testing.expect(diff >= -1 and diff <= 1);
+    }
 }

@@ -18,6 +18,17 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const native_target = b.standardTargetOptions(.{});
 
+    // ── SIMD トグル ───────────────────────────────────────────────────────────
+    // Phase 3A: スキャフォールディングのみ。デフォルト off。
+    // 有効化: zig build -Dsimd=true
+    const simd_enabled = b.option(
+        bool,
+        "simd",
+        "Enable SIMD optimizations in the Zig resize path (default: off)",
+    ) orelse false;
+    const build_options = b.addOptions();
+    build_options.addOption(bool, "simd_enabled", simd_enabled);
+
     // ── Cross-compile targets ─────────────────────────────────────────────────
     const linux_target = b.resolveTargetQuery(.{
         .cpu_arch = .x86_64,
@@ -81,6 +92,7 @@ pub fn build(b: *std.Build) void {
     const pict_mod = b.createModule(.{
         .root_source_file = b.path("src/root.zig"),
     });
+    pict_mod.addOptions("build_options", build_options);
 
     // ── Native CLI (dev: Mac ARM) ─────────────────────────────────────────────
     const cli = b.addExecutable(.{
@@ -123,6 +135,7 @@ pub fn build(b: *std.Build) void {
     });
     wasm_exe.rdynamic = true;
     wasm_exe.stack_size = 64 * 1024;
+    wasm_exe.root_module.addOptions("build_options", build_options);
 
     const wasm_step = b.step("wasm", "Build WebAssembly / WASI module");
     wasm_step.dependOn(&b.addInstallArtifact(wasm_exe, .{
@@ -137,6 +150,7 @@ pub fn build(b: *std.Build) void {
         .optimize = .ReleaseFast,
     });
     ffi_lib.root_module.addImport("pict", pict_mod);
+    ffi_lib.root_module.addOptions("build_options", build_options);
     addCLibraries(b, ffi_lib, jconfig_h, jconfigint_h, jversion_h);
 
     const lib_step = b.step("lib", "Build shared library for FFI (.dylib/.so)");
@@ -152,6 +166,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     addCLibraries(b, unit_tests, jconfig_h, jconfigint_h, jversion_h);
+    unit_tests.root_module.addOptions("build_options", build_options);
 
     // CLI (main.zig) の parseArgs 等の純 Zig テストも同じステップで実行する。
     const cli_tests = b.addTest(.{
