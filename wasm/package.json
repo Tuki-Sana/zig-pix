@@ -1,6 +1,6 @@
 {
   "name": "zigpix-wasm",
-  "version": "0.1.0",
+  "version": "0.1.3",
   "description": "Browser-side AVIF encoder for zigpix — powered by libavif + libaom compiled to WebAssembly",
   "type": "module",
   "exports": {

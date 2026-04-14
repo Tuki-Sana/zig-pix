@@ -3,7 +3,7 @@
  *
  * Usage (ESM, bundler or native module):
  *
- *   import { createAvifEncoder } from '@zigpix/wasm';
+ *   import { createAvifEncoder } from 'zigpix-wasm';
  *
  *   const enc = await createAvifEncoder();
  *   const avif = enc.encode(rgbaPixels, width, height, { quality: 60, speed: 10 });

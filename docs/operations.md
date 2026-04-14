@@ -204,3 +204,31 @@ cp zig-out/lib/libpict.so node_modules/zigpix-linux-x64/libpict.so
 既に optional が入っている環境では、`mkdir` / `package.json` のコピーは省略して **`libpict` の `cp` だけ**でもよい。
 
 CI の **build-native** でも `npm run build` の直後に上記と同等の overlay を実行している。
+
+## 9) `zigpix-wasm`（ブラウザ・Cloudflare Pages 向け AVIF）
+
+ルートの **`zigpix`**（ネイティブ FFI）とは **別パッケージ** [`zigpix-wasm`](https://www.npmjs.com/package/zigpix-wasm)。Emscripten でビルドした **ブラウザ用 AVIF エンコード**のみ（小〜中画像向け。`decode` / リサイズ / WebP は含まない）。
+
+### バージョンをネイティブと揃える
+
+**意図**: `zigpix@x.y.z` を出したときは、同じ **`x.y.z`** を `wasm/package.json` の `version` にも書き、`zigpix-wasm@x.y.z` を npm に公開する（運用で同期。コード依存はないが、利用者がバージョンを一列に並べやすい）。
+
+### 公開前のビルド（必須）
+
+`wasm/dist/` は `.gitignore` 対象のため、**publish 前に手元で生成**する。前提: [Emscripten emsdk](https://emscripten.org/docs/getting_started/downloads.html) が有効なシェル（`wasm/README.md` の手順）。
+
+```bash
+cd wasm
+npm run build:all    # baseline + SIMD。または npm run build のみ
+npm test             # Node smoke（任意だが推奨）
+npm publish --access public
+```
+
+### Cloudflare Pages での使い方（要点）
+
+- **静的サイト**としてブラウザで動かす想定。`import { createAvifEncoder } from 'zigpix-wasm'` のように ESM で読み、bundler が `.wasm` をアセットとして吐き出す設定（Vite / esbuild 等の `assetsInclude` や既定の wasm 取り扱い）に合わせる。
+- **Workers 上での WASM AVIF エンコード**は CPU 時間・サイズ制約が厳しく、チェックリストどおり **非推奨**（大画像はサーバの `zigpix` ネイティブへ）。
+
+### CI での自動ビルド（未実装）
+
+現状、**GitHub Actions では Emscripten チェーンを回していない**。将来、artifact に `wasm/dist` を載せてから `npm publish` するジョブを足すと、ローカル emsdk なしでリリースできる。

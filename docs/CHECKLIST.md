@@ -441,7 +441,7 @@ zig llvm-nm -D zig-out/linux-x86_64/libpict.so | grep pict_encode_avif  # シン
 - [x] メモリピーク計測スクリプト — `scripts/mem-peak.sh`（GNU `time -v` / `gtime -v` で FFI と bench の Max RSS を表示）
 - [x] メモリピーク README 転記 — Linux x86_64 VPS で `bash scripts/mem-peak.sh` 実測、FFI **43536 kB** / bench **135356 kB** を [README](../README.md) に反映（bench は `npm run build` + sharp 後の正常完了時）
 - [x] Linux VPS クロスコンパイル動作確認 (`zig build linux`) — Phase 4 で確認済み
-- [x] `docs/operations.md` 更新 — Phase 7C で libavif 依存手順・FFI テスト手順を追記済み。§8 で npm パッチ手順を追記済み
+- [x] `docs/operations.md` 更新 — Phase 7C で libavif 依存手順・FFI テスト手順を追記済み。§8 で npm パッチ手順、§9 で `zigpix-wasm`（Pages 向け・バージョンは `zigpix` と揃える運用）を追記済み
 
 ---
 
