@@ -15,6 +15,7 @@
 | [`docs/CHECKLIST.md`](./CHECKLIST.md) | 実装フェーズの**追跡用チェックリスト**（長い・時系列） | 実装中に見失わないため |
 | [`docs/dev_log.md`](./dev_log.md) | 開発メモ（日付つき抜粋）。正本にしない | メンテナの作業記録 |
 | [`docs/deps.md`](./deps.md) | vendor submodule とシステム libavif の一覧・更新方針 | 依存を触る人 |
+| [`docs/LOCAL.example.md`](./LOCAL.example.md) | **`docs/LOCAL.md` のテンプレ**（git 管理外の個人メモ用） | メンテナ（任意） |
 
 ## 読む順（目安）
 
@@ -30,13 +31,6 @@
 4. **npm に publish する**  
    `docs/release.md` を上から（`docs/operations.md` は補足・ローカル検証用）
 
-## このリポジトリのドキュメントに**載せない方がよい**もの
+## コミットしないメモ
 
-次は **git にコミットしない**か、**別の安全な場所**（パスワードマネージャ、社内 Wiki の権限付きページ等）に置く。
-
-- **認証情報**: npm トークン、SSH 鍵、API キー、`.npmrc` の認証行
-- **個人・社内の固定情報**: 非公開 URL、社内ホスト名、個人のメール・電話を必須としない
-- **未整理のセキュリティ詳細**: 再現手順のない脆弱性の断定、修正前の exploit 詳細（GitHub Security Advisories の運用に従う）
-- **他人の個人情報・顧客データ**、契約上共有できない内容
-
-手順書には **「`npm whoami` が通ること」**のように**状態だけ**書き、**秘密そのものは書かない**。
+**認証情報・社内 URL・自分用の RUN_ID メモ**など、リポジトリに載せたくない内容は **`docs/LOCAL.md`** に書く（`.gitignore` 済み）。テンプレは **[`docs/LOCAL.example.md`](./LOCAL.example.md)** を `docs/LOCAL.md` にコピーして使う。
