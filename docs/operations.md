@@ -166,3 +166,33 @@ zig build lib-linux
 # pict_encode_avif シンボルが存在することを確認 (AVIF 無効でも ABI 互換シンボルとして存在)
 zig llvm-nm -D zig-out/linux-x86_64/libpict.so | grep pict_encode_avif
 ```
+
+## 8) npm パッチリリース（`zigpix` と optional 同梱バイナリ）
+
+ルート `package.json` の `version` と `optionalDependencies`（`zigpix-darwin-arm64` / `zigpix-linux-x64`）、および `npm/zigpix-*/package.json` の `version` を **同一のパッチ番号**に揃える。
+
+### 公開前に置くファイル
+
+`npm/zigpix-darwin-arm64/libpict.dylib` と `npm/zigpix-linux-x64/libpict.so` は **git 管理外**（`.gitignore`）だが、`npm publish` にはワーキングツリー上に実体が必要。GitHub Actions の **build-native** ジョブ成果物（`libpict-darwin-arm64` / `libpict-linux-x64`）からコピーする。
+
+### 公開順序
+
+1. `npm/zigpix-darwin-arm64` で `npm publish`（Access トークン・`npm whoami` を確認）
+2. `npm/zigpix-linux-x64` で同様に `npm publish`
+3. リポジトリルートで `npm publish`（メタパッケージ `zigpix`。`prepublishOnly` で `js/dist` が生成される）
+
+optional を先に上げないと、ルートだけ先に `0.1.n` を出すと `npm install zigpix` が新しい optional を解決できず失敗する。
+
+### ローカル / CI で「今ビルドした lib」を使う
+
+`npm install` 済みの optional パッケージは **レジストリの古いバイナリ**を指すことがある。次で上書きすると、FFI / E2E が `zig-out` のビルドと一致する。
+
+```bash
+# macOS Apple Silicon の例
+cp zig-out/lib/libpict.dylib node_modules/zigpix-darwin-arm64/libpict.dylib
+
+# Linux x86_64 の例
+cp zig-out/lib/libpict.so node_modules/zigpix-linux-x64/libpict.so
+```
+
+CI の **build-native** でも `npm run build` の直後に同様の `cp` を実行している（ワークフロー定義を参照）。
