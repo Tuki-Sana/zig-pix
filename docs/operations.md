@@ -187,12 +187,20 @@ optional を先に上げないと、ルートだけ先に `0.1.n` を出すと `
 
 `npm install` 済みの optional パッケージは **レジストリの古いバイナリ**を指すことがある。次で上書きすると、FFI / E2E が `zig-out` のビルドと一致する。
 
+**注意**: `package.json` の `optionalDependencies` が **まだ npm に無いバージョン**だと、optional は解決されず `node_modules/zigpix-*` が存在しない。その場合はディレクトリと `package.json` を先に置いてから `libpict` をコピーする（CI の **build-native** と同じ手順）。
+
 ```bash
 # macOS Apple Silicon の例
+mkdir -p node_modules/zigpix-darwin-arm64
+cp npm/zigpix-darwin-arm64/package.json node_modules/zigpix-darwin-arm64/
 cp zig-out/lib/libpict.dylib node_modules/zigpix-darwin-arm64/libpict.dylib
 
 # Linux x86_64 の例
+mkdir -p node_modules/zigpix-linux-x64
+cp npm/zigpix-linux-x64/package.json node_modules/zigpix-linux-x64/
 cp zig-out/lib/libpict.so node_modules/zigpix-linux-x64/libpict.so
 ```
 
-CI の **build-native** でも `npm run build` の直後に同様の `cp` を実行している（ワークフロー定義を参照）。
+既に optional が入っている環境では、`mkdir` / `package.json` のコピーは省略して **`libpict` の `cp` だけ**でもよい。
+
+CI の **build-native** でも `npm run build` の直後に上記と同等の overlay を実行している。

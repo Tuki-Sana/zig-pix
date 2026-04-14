@@ -426,7 +426,7 @@ zig llvm-nm -D zig-out/linux-x86_64/libpict.so | grep pict_encode_avif  # シン
 #### 0.1.3 パッチ（静止画 WebP decode + npm 手順整備）✅
 
 - [x] `decode` / CLI / `pict_decode_v2` が静止画 WebP を受理（アニメ WebP は拒否）
-- [x] CI: `zig-out` の `libpict` を `node_modules/zigpix-*` に上書きしてから FFI/E2E
+- [x] CI: `zig-out` の `libpict` を `node_modules/zigpix-*` に上書きしてから FFI/E2E（optional 未公開時は `mkdir` + `npm/zigpix-*/package.json` を同梱してから `cp`）
 - [x] `docs/operations.md` §8 — npm パッチ公開順（optional 先 → ルート）とローカル overlay 手順
 - [x] `zigpix` / `zigpix-darwin-arm64` / `zigpix-linux-x64` を **0.1.3** に揃えて npm publish（実施はメンテナ）
 
