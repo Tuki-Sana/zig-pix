@@ -38,7 +38,7 @@ import { decode, resize, encodeWebP, encodeAvif } from "npm:zigpix/deno";
 
 **v0.1.0 以降は追加インストール不要です。** `libavif` と `libaom` はバイナリに静的リンク済みです。
 
-> ソースからビルドする場合（開発者向け）は `docs/operations.md` を参照してください。
+> ソースからビルドする場合（開発者向け）は `docs/operations.md`、**npm 公開手順**は `docs/release.md` を参照してください。
 
 ## 使い方
 
@@ -316,7 +316,8 @@ FFI 結合テスト（`npm run test:bun` / `npm run test:node`）は **`zig buil
 ### ドキュメント
 
 - 設計要件: `RFC.md`
-- 日常運用・libavif セットアップ・**npm リリース（コマンド集）**: `docs/operations.md`（§8「コマンド集（コピペ用）」）
+- 日常運用・libavif セットアップ: `docs/operations.md`
+- **`main` push 後の npm リリース**: `docs/release.md`（チェックリスト付き）
 - vendor 依存管理: `docs/deps.md`
 - 実装チェックリスト: `docs/CHECKLIST.md`
 - **リリース差分（利用者向け）**: `CHANGELOG.md`

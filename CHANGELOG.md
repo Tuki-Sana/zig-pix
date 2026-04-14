@@ -3,6 +3,12 @@
 このファイルは [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) の体裁に近づけ、`zigpix` / 同梱 optional / `zigpix-wasm` の**利用者向けの差分**を記録する。  
 0.1.3 以前の細目は Git タグと `docs/CHECKLIST.md`（npm リリース節）を参照。
 
+## [Unreleased]
+
+### 変更
+
+- **メンテナ向け**: `docs/release.md` を追加し、`main` push 後〜npm 公開までをチェックリスト化。`docs/operations.md` の §8 / §9 は概要と参照に整理。
+
 ## [0.1.4] - 2026-04-14
 
 ### 追加

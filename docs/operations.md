@@ -3,6 +3,8 @@
 このドキュメントは、`pict-zig-engine` の日常運用で迷いやすい項目をまとめたものです。  
 設計思想は `RFC.md`、実務手順はこのファイルを正とします。
 
+**`main` へ push 済みから npm 公開まで**の手順は、ミス防止のため **[`docs/release.md`](./release.md)** に一本化した（チェックリスト付き）。本ファイルの §8 は概要と開発者向けメモのみ。
+
 ## 1) ツールチェーン方針
 
 - Zig は `mise` でプロジェクト単位に固定する。
@@ -139,7 +141,7 @@ Mac からのクロスコンパイル (`zig build lib-linux`) では AVIF は無
 bash test/ffi/run.sh   # zig build lib + bun run test/ffi/test.ts
 ```
 
-期待出力: `All 6 tests passed.` (Case A〜F)
+期待出力: `All 8 tests passed.`（Case A〜G 相当。スイート拡張に応じて件数は変わり得る）
 
 ### Linux VPS
 
@@ -156,7 +158,7 @@ bun run test/ffi/test.ts
 
 期待出力:
 - `ldd` に `libavif.so.*` が表示される
-- `All 6 tests passed.` (Case E が null ではなく ftyp 検証を通ること)
+- `All 8 tests passed.` など（Case E が null ではなく ftyp 検証を通ること）
 
 ### lib-linux の回帰確認 (Mac 上)
 
@@ -169,93 +171,15 @@ zig llvm-nm -D zig-out/linux-x86_64/libpict.so | grep pict_encode_avif
 
 ## 8) npm パッチリリース（`zigpix` と optional 同梱バイナリ）
 
-ルート `package.json` の `version` と `optionalDependencies`（`zigpix-darwin-arm64` / `zigpix-linux-x64`）、および `npm/zigpix-*/package.json` の `version` を **同一のパッチ番号**に揃える。
+### 正本
 
-### リリースノート（publish 前に必ず）
+**[`docs/release.md`](./release.md)** — `main` へ push 済みから **ネイティブ optional → ルート `zigpix`**、続けて **`zigpix-wasm`** までの **チェックリスト付き手順**（`RUN_ID` の取り違え防止、検証コマンド、よくあるミス）。
 
-- **ネイティブ `zigpix`**: ルート **`CHANGELOG.md`** に、そのバージョンの見出し（例: `## [0.1.4] - YYYY-MM-DD`）と利用者向けの箇条書きを書く。GitHub Releases を併用する場合は、本文をここからコピーしてよい。
-- **`zigpix-wasm`**: **`wasm/CHANGELOG.md`** を同様に更新する（ネイティブと**同じパッチで上げる運用**のときは、ルート `CHANGELOG.md` に一行サマリを書き `wasm/CHANGELOG.md` に詳細を寄せてもよい）。
+### ここだけ押さえる（詳細は release.md）
 
-**`zigpix-wasm` だけ**上げるリリースでは、`wasm/package.json` の `version` と **`wasm/CHANGELOG.md`** だけを更新すればよい（§9）。
-
-### ネイティブと `zigpix-wasm` を同じパッチで上げる場合（例: 0.1.4）
-
-推奨の順序:
-
-1. ルートで `zig build test` / `zig build lib` / `npm run build` / FFI・E2Eが通ることを確認する。
-2. **`CHANGELOG.md`** と **`wasm/CHANGELOG.md`** をそのバージョンで更新済みにする。
-3. **optional → ルート**（下記「公開順序」）で `zigpix` を publish する。
-4. **`zigpix-wasm`**: `wasm/dist/` を生成する（手元は `source ~/emsdk/emsdk_env.sh` のうえ `cd wasm && npm run build:all && npm test`。または CI **Build WASM** の artifact を `scripts/fetch-wasm-artifact.sh` で展開）。
-5. `cd wasm && npm publish --access public`（§9 の注意どおり `dist` が無いと publish できない）。
-
-### 公開前に置くファイル
-
-`npm/zigpix-darwin-arm64/libpict.dylib` と `npm/zigpix-linux-x64/libpict.so` は **git 管理外**（`.gitignore`）だが、`npm publish` にはワーキングツリー上に実体が必要。GitHub Actions の **build-native** ジョブ成果物（`libpict-darwin-arm64` / `libpict-linux-x64`）からコピーする。
-
-### 公開順序
-
-1. `npm/zigpix-darwin-arm64` で `npm publish`（Access トークン・`npm whoami` を確認）
-2. `npm/zigpix-linux-x64` で同様に `npm publish`
-3. リポジトリルートで `npm publish`（メタパッケージ `zigpix`。`prepublishOnly` で `js/dist` が生成される）
-
-optional を先に上げないと、ルートだけ先に `0.1.n` を出すと `npm install zigpix` が新しい optional を解決できず失敗する。
-
-### コマンド集（コピペ用・git 追跡）
-
-手順の正本はここに置く（**機密は書かない**。npm トークンや `.npmrc` は各自の環境のみ）。
-
-**前提**: `npm whoami` が通る。`CHANGELOG.md` / `wasm/CHANGELOG.md` を更新済み。`main` の **Build native binaries** が成功している run を使う。
-
-#### A. ネイティブ optional 用に `libpict` を CI から取得する
-
-同一の workflow run に **Linux** と **macOS** のジョブが含まれる。GitHub の run 一覧で **database id**（または URL の末尾の数字）を `RUN_ID` とする。
-
-```bash
-# リポジトリルートで。RUN_ID を置き換え。
-export RUN_ID=12345678901
-
-gh run download "$RUN_ID" -n libpict-darwin-arm64 -D /tmp/libpict-darwin-arm64
-gh run download "$RUN_ID" -n libpict-linux-x64 -D /tmp/libpict-linux-x64
-
-# artifact 内の lib + ライセンスを npm/ 配下へ（package.json はリポジトリのものを正とする想定）
-cp /tmp/libpict-darwin-arm64/libpict.dylib npm/zigpix-darwin-arm64/
-cp /tmp/libpict-linux-x64/libpict.so npm/zigpix-linux-x64/
-cp LICENSE THIRD_PARTY_LICENSES npm/zigpix-darwin-arm64/
-cp LICENSE THIRD_PARTY_LICENSES npm/zigpix-linux-x64/
-```
-
-`gh run list --workflow=build-native.yml --branch main --limit 5` で `RUN_ID` を調べる。展開先の中身は `ls /tmp/libpict-darwin-arm64` で確認してよい（Actions の UI から zip を落とす場合も同じファイルを `npm/zigpix-*/` に置けばよい）。
-
-#### B. ネイティブ三パッケージを publish する
-
-```bash
-cd npm/zigpix-darwin-arm64 && npm publish --access public && cd ../..
-cd npm/zigpix-linux-x64 && npm publish --access public && cd ../..
-npm publish --access public
-```
-
-#### C. `zigpix-wasm` — CI artifact から `wasm/dist` を埋める
-
-**Build WASM** を手動実行し成功後、`RUN_ID` を `build-wasm.yml` の run に合わせる。
-
-```bash
-# リポジトリルートで
-export RUN_ID=12345678901
-bash scripts/fetch-wasm-artifact.sh "$RUN_ID"
-cd wasm && npm test && npm publish --access public && cd ..
-```
-
-#### D. `zigpix-wasm` — 手元 Emscripten でビルドする場合
-
-```bash
-source ~/emsdk/emsdk_env.sh   # パスは環境に合わせる
-cd wasm && npm run build:all && npm test && npm publish --access public && cd ..
-```
-
-#### 補足
-
-- **git 非追跡のメモ**に残すのは、トークン・社内 URL・マシン固有パスに限るとよい。手順本体は本ファイルのように **追跡ドキュメント**に置く。
-- publish 前のローカル検証: ルートで `zig build test`、`zig build lib`、`npm run build`、`npm run test:node` / `npm run test:bun` など。
+- ルート `package.json` の `version` と `optionalDependencies`、`npm/zigpix-*/package.json` の `version` を **同一パッチ**に揃える。
+- `libpict.dylib` / `libpict.so` は **git 管理外**。publish 直前に **build-native の緑 run** から `npm/zigpix-*/` へ置く。
+- **publish 順**: `zigpix-darwin-arm64` → `zigpix-linux-x64` → ルート **`zigpix`**（逆にすると `npm install zigpix` が失敗し得る）。
 
 ### ローカル / CI で「今ビルドした lib」を使う
 
@@ -283,50 +207,22 @@ CI の **build-native** でも `npm run build` の直後に上記と同等の ov
 
 ルートの **`zigpix`**（ネイティブ FFI）とは **別パッケージ** [`zigpix-wasm`](https://www.npmjs.com/package/zigpix-wasm)。Emscripten でビルドした **ブラウザ用 AVIF エンコード**のみ（小〜中画像向け。`decode` / リサイズ / WebP は含まない）。
 
+### リリース手順
+
+**[`docs/release.md`](./release.md)** の **Phase 2** を参照（`build-wasm` の **別 RUN_ID**、`fetch-wasm-artifact.sh`、`wasm/dist` の存在確認、`npm publish`）。
+
 ### バージョン方針（ネイティブと独立）
 
-- **`wasm/package.json` の `version` が `zigpix-wasm` のセマバ**であり、**`zigpix` と同期させる必要はない**（WASM だけ直す／ネイティブだけ直す、を別リリースにできる）。
+- **`wasm/package.json` の `version` が `zigpix-wasm` のセマバ**であり、**`zigpix` と同期させる必要はない**。
 - 見た目を揃えたいリリースでは、運用で同じ番号にしてもよい（必須ではない）。
-
-### 公開前のビルド（手元）
-
-`wasm/dist/` は `.gitignore` 対象のため、**publish 前に生成**する。前提: [Emscripten emsdk](https://emscripten.org/docs/getting_started/downloads.html) が有効なシェル（`wasm/README.md`）。
-
-```bash
-cd wasm
-npm run build:all    # baseline + SIMD。または npm run build のみ
-npm test             # Node smoke（推奨）
-npm publish --access public
-```
 
 ### CI（手動のみ・`build-native` とは別ワークフロー）
 
-ワークフロー **Build WASM (zigpix-wasm)**（`.github/workflows/build-wasm.yml`）を **手動実行**（`workflow_dispatch`）すると、Ubuntu 上で Emscripten をセットアップし `wasm/dist` をビルドし、**artifact `zigpix-wasm-dist`** としてアップロードする。**所要時間は libaom / libavif のフルコンパイルが支配的**で、初回・クリーン環境では **30〜90 分程度**かかることもある。一方、ランナーやネットワーク次第では **数分〜十数分**で完了することがある（目安であり保証ではない）。
+ワークフロー **Build WASM**（`.github/workflows/build-wasm.yml`）を **手動実行**すると `wasm/dist` が artifact（`zigpix-wasm-dist`）として保存される。**所要時間は libaom / libavif のフルコンパイルが支配的**（目安: 数分〜数十分以上）。`build-native` には混ぜない。
 
-- **`build-native` には混ぜない**（ネイティブ CI の時間・失敗要因を増やさない）。
-- **npm publish は自動では行わない**（`NPM_TOKEN` を載せるまで）。成果物をダウンロードして手元で `wasm/` から `npm publish` するか、将来ジョブを足す。
+### 詳細・ビルド前提
 
-### npm publish（CI 成果物をコマンドで反映する手順）
-
-1. 成功した run の **databaseId** を確認する。
-
-   ```bash
-   gh run list --workflow=build-wasm.yml --branch main --limit 5
-   ```
-
-2. リポジトリルートで artifact を `wasm/dist/` に展開する（`gh` が認証済みであること）。
-
-   ```bash
-   bash scripts/fetch-wasm-artifact.sh RUN_ID
-   ```
-
-   `scripts/fetch-wasm-artifact.sh` は `gh run download` のあと、zip 内の **`avif.js` を探索**して親ディレクトリを `wasm/dist/` の中身としてコピーする（artifact の一段ディレクトリ差を吸収する）。
-
-3. 検証して publish する。
-
-   ```bash
-   cd wasm && npm test && npm publish --access public
-   ```
+- **`wasm/README.md`**（Emscripten、`npm run build:all`、ブラウザテスト）
 
 ### Cloudflare Pages での使い方（要点）
 

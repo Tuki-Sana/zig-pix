@@ -443,9 +443,10 @@ zig llvm-nm -D zig-out/linux-x86_64/libpict.so | grep pict_encode_avif  # シン
 - [x] `pict_decode_v3` / `decode()` で埋め込み ICC を `ImageBuffer.icc` に返す
 - [x] `pict_encode_webp_v2` / `encodeWebP()` で ICC を WebP に埋め込み、`resize()` で `icc` を引き継ぎ
 - [x] `build.zig` / README — `zig build wasm` とネイティブ・`zigpix-wasm` の役割分担を明示
-- [x] ルート **`CHANGELOG.md`** 追加（0.1.4 エントリ・`package.json` `files` へ収録、`docs/operations.md` §8 に publish 前更新手順）
+- [x] ルート **`CHANGELOG.md`** 追加（0.1.4 エントリ・`package.json` `files` へ収録）
+- [x] **`docs/release.md`** — push 後〜npm までの手順をチェックリスト化（`operations.md` §8/9 は概要＋参照に整理）
 - [x] **`wasm/CHANGELOG.md`** 追加（0.1.4・`wasm/package.json` の `files` に収録）
-- [ ] **0.1.4 一括 publish（メンテナ）**: `docs/operations.md` §8「ネイティブと zigpix-wasm を同じパッチで上げる場合」および **「コマンド集（コピペ用）」**に従い、(1) optional 二つ → ルート `zigpix`、(2) `wasm/dist` 生成済みのうえ `cd wasm && npm test && npm publish`
+- [ ] **0.1.4 一括 publish（メンテナ）**: **`docs/release.md`** の Phase 1 → Phase 2 に従い、(1) optional 二つ → ルート `zigpix`、(2) 必要なら `zigpix-wasm`（`wasm/dist` 生成済みのうえ `npm test` / `npm publish`）。補足は `docs/operations.md` §8 / §9
 
 **Phase 8C 完全クローズ** — Node / Bun / Deno 三ランタイム対応完了
 

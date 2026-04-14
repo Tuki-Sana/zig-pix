@@ -37,3 +37,4 @@
 ## 6. 運用ドキュメント
 
 - 日常運用（Zig/mise、submodule、チェック手順）は `docs/operations.md` を参照。
+- **`main` へ push 済みから npm 公開まで**は `docs/release.md`（チェックリスト付き）。
