@@ -74,7 +74,12 @@ if ! command -v emcc &>/dev/null; then
     fi
 fi
 
-EMCC_VERSION=$(emcc --version 2>&1 | head -1)
+# Avoid `emcc --version | head` under pipefail: closing the pipe can SIGPIPE the
+# Python emcc process and fail the whole script before any log line (CI symptom).
+if ! _emcc_ver_out=$(emcc --version 2>&1); then
+    error "emcc --version failed (exit $?): $_emcc_ver_out"
+fi
+EMCC_VERSION="${_emcc_ver_out%%$'\n'*}"
 info "Using: $EMCC_VERSION"
 
 # ---------------------------------------------------------------------------
@@ -102,6 +107,7 @@ mkdir -p "$LIBAOM_BUILD" "$LIBAVIF_BUILD" "$OUT_DIR"
 # Step 1: Build libaom → libaom.a (WASM)
 # ---------------------------------------------------------------------------
 info "Step 1: configuring libaom for WASM..."
+# Log to file so we can check emcmake's exit code (pipes + grep break pipefail).
 emcmake cmake "$LIBAOM_SRC" \
     -B "$LIBAOM_BUILD" \
     -G Ninja \
@@ -119,7 +125,12 @@ emcmake cmake "$LIBAOM_SRC" \
     -DENABLE_DOCS=0 \
     -DENABLE_TOOLS=0 \
     -DENABLE_CCACHE=0 \
-    2>&1 | grep -v "^--" | tail -20
+    &> "$LIBAOM_BUILD/configure.log" || {
+    _libaom_cfg=$?
+    tail -50 "$LIBAOM_BUILD/configure.log" >&2 || true
+    error "libaom cmake configure failed (exit $_libaom_cfg)"
+}
+grep -v "^--" "$LIBAOM_BUILD/configure.log" | tail -20 || true
 
 info "Step 1: building libaom..."
 cmake --build "$LIBAOM_BUILD" -- -j"$(sysctl -n hw.logicalcpu 2>/dev/null || nproc)"
@@ -167,7 +178,12 @@ emcmake cmake "$LIBAVIF_SRC" \
     -DAVIF_BUILD_APPS=OFF \
     -DAVIF_ENABLE_WERROR=OFF \
     -DCMAKE_SKIP_INSTALL_RULES=ON \
-    2>&1 | grep -v "^--" | tail -20
+    &> "$LIBAVIF_BUILD/configure.log" || {
+    _libavif_cfg=$?
+    tail -50 "$LIBAVIF_BUILD/configure.log" >&2 || true
+    error "libavif cmake configure failed (exit $_libavif_cfg)"
+}
+grep -v "^--" "$LIBAVIF_BUILD/configure.log" | tail -20 || true
 
 info "Step 2: building libavif..."
 cmake --build "$LIBAVIF_BUILD" -- -j"$(sysctl -n hw.logicalcpu 2>/dev/null || nproc)"

@@ -19,16 +19,27 @@ jobs:
           submodules: recursive
 
       - name: Install build tools
-        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build python3
+        # perl: libaom CMake (version.pl / rtcd.pl). Without it configure fails fast.
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build python3 perl
 
       - name: Setup Emscripten
         uses: mymindstorm/setup-emsdk@v14
         with:
           version: 3.1.51
-          actions-cache-folder: emsdk-cache
+          # Omit actions-cache-folder: GitHub cache API flakes (400 / HTML outage)
+          # should not block WASM builds.
+
+      - name: Verify Emscripten (diagnostics)
+        run: |
+          set -euxo pipefail
+          command -v emcc
+          emcc --version
+          command -v emcmake
 
       - name: Build WASM (baseline + SIMD)
-        run: cd wasm && npm run build:all
+        run: |
+          bash scripts/build-wasm.sh
+          bash scripts/build-wasm.sh --simd
 
       - name: Node smoke tests
         run: cd wasm && npm test
