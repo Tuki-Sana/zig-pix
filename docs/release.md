@@ -46,6 +46,8 @@
    gh run download "$RUN_ID" -n libpict-linux-x64 -D /tmp/libpict-linux-x64
    ```
 
+   **`export` について（勉強メモ）**: `export RUN_ID=…` でセットした変数は **そのターミナル（シェル）のセッション内だけ**有効。`gh run download` は **`export` と同じウィンドウで、その直後**に実行する（別タブ／別シェルだと `RUN_ID` が空になり失敗しやすい）。別セッションなら `export` をやり直すか、`gh run download 12345678901 ...` のように **ID をコマンドに直接書いてもよい**。
+
 3. **確認**（ファイルが存在すること）:
 
    ```bash
@@ -107,7 +109,7 @@ npm view zigpix-linux-x64 version
    gh run list --workflow=build-wasm.yml --branch main --limit 5
    ```
 
-3. リポジトリルートで:
+3. リポジトリルートで（**Phase 1.1 と同様**、`export` と `fetch` は **同じシェル**で続けて実行）:
 
    ```bash
    export RUN_ID=実際の数字

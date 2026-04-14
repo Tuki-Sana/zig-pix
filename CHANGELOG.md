@@ -9,6 +9,7 @@
 
 - **メンテナ向け**: `docs/release.md` を追加し、`main` push 後〜npm 公開までをチェックリスト化。`docs/operations.md` の §8 / §9 は概要と参照に整理。
 - **`docs/README.md`**: 各ドキュメントの役割・読む順を追加。任意のメモ用に **`docs/LOCAL.md`** を `.gitignore`。
+- **`docs/release.md`**: `export RUN_ID` と `gh run download` を **同一シェルで実行する理由**を追記。
 
 ## [0.1.4] - 2026-04-14
 
