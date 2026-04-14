@@ -105,7 +105,7 @@ pub const Decoder = struct {
 // フォーマット判定ユーティリティ
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub const Format = enum { jpeg, png, unknown };
+pub const Format = enum { jpeg, png, webp, unknown };
 
 /// magic bytes によるフォーマット検出 (拡張子に依存しない)
 pub fn detectFormat(data: []const u8) Format {
@@ -114,6 +114,13 @@ pub fn detectFormat(data: []const u8) Format {
     if (data[0] == 0xFF and data[1] == 0xD8 and data[2] == 0xFF) return .jpeg;
     // PNG: 89 50 4E 47
     if (data[0] == 0x89 and data[1] == 0x50 and data[2] == 0x4E and data[3] == 0x47) return .png;
+    // WebP: RIFF....WEBP (still image container; animated はデコード側で拒否)
+    if (data.len >= 12 and
+        data[0] == 'R' and data[1] == 'I' and data[2] == 'F' and data[3] == 'F' and
+        data[8] == 'W' and data[9] == 'E' and data[10] == 'B' and data[11] == 'P')
+    {
+        return .webp;
+    }
     return .unknown;
 }
 
@@ -159,6 +166,21 @@ extern fn pict_png_decode(
 ) c_int;
 
 extern fn pict_png_free(data: [*]u8) void;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// libwebp decode C bridge (src/c/webp_decode.c)
+// ─────────────────────────────────────────────────────────────────────────────
+
+extern fn pict_webp_decode(
+    src: [*]const u8,
+    src_len: c_ulong,
+    out_data: *[*]u8,
+    out_width: *c_uint,
+    out_height: *c_uint,
+    out_channels: *c_uint,
+) c_int;
+
+extern fn pict_webp_decode_free(data: [*]u8) void;
 
 /// テスト専用エンコーダ。libpng の in-memory write を使う。
 /// 返り値バッファは pict_png_free() で解放すること。
@@ -333,6 +355,82 @@ pub fn pngDecoder() Decoder {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// WebpDecoder — libwebp を使う Decoder 実装 (静止画 WebP のみ)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// libwebp でメモリ上の WebP をデコードする Decoder 実装。
+/// アニメーション WebP は DecodeError.CorruptData とする。
+pub const WebpDecoder = struct {
+    pub const vtable = Decoder.VTable{
+        .decode = decodeImpl,
+        .deinit = deinitImpl,
+    };
+
+    fn decodeImpl(
+        ptr: *anyopaque,
+        data: []const u8,
+        allocator: std.mem.Allocator,
+    ) DecodeError!ImageBuffer {
+        _ = ptr;
+
+        var out_data: [*]u8 = undefined;
+        var out_width: c_uint = 0;
+        var out_height: c_uint = 0;
+        var out_channels: c_uint = 0;
+
+        const result = pict_webp_decode(
+            data.ptr,
+            @intCast(data.len),
+            &out_data,
+            &out_width,
+            &out_height,
+            &out_channels,
+        );
+
+        switch (result) {
+            0 => {},
+            -2 => return DecodeError.OutOfMemory,
+            else => return DecodeError.CorruptData,
+        }
+
+        const w: usize = @intCast(out_width);
+        const h: usize = @intCast(out_height);
+        const ch: usize = @intCast(out_channels);
+        const total = h * w * ch;
+        const c_slice = out_data[0..total];
+        defer pict_webp_decode_free(out_data);
+
+        const zig_buf = try allocator.alloc(u8, total);
+        errdefer allocator.free(zig_buf);
+        @memcpy(zig_buf, c_slice);
+
+        const fmt: PixelFormat = if (ch == 4) .rgba8 else .rgb8;
+        return ImageBuffer{
+            .width = @intCast(out_width),
+            .height = @intCast(out_height),
+            .channels = @intCast(out_channels),
+            .format = fmt,
+            .data = zig_buf,
+            .allocator = allocator,
+        };
+    }
+
+    fn deinitImpl(ptr: *anyopaque) void {
+        _ = ptr;
+    }
+};
+
+pub fn webpDecoder() Decoder {
+    const Anchor = struct {
+        var byte: u8 = 0;
+    };
+    return .{
+        .ptr = &Anchor.byte,
+        .vtable = &WebpDecoder.vtable,
+    };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // テスト
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -349,6 +447,24 @@ test "detectFormat: PNG magic" {
 test "detectFormat: unknown" {
     const garbage = [_]u8{ 0x00, 0x01, 0x02, 0x03 };
     try std.testing.expectEqual(Format.unknown, detectFormat(&garbage));
+}
+
+test "detectFormat: WebP RIFF header" {
+    var hdr: [16]u8 = undefined;
+    @memcpy(hdr[0..4], "RIFF");
+    @memset(hdr[4..8], 0);
+    @memcpy(hdr[8..12], "WEBP");
+    @memset(hdr[12..16], 0);
+    try std.testing.expectEqual(Format.webp, detectFormat(&hdr));
+}
+
+test "detectFormat: RIFF but not WebP" {
+    var hdr: [16]u8 = undefined;
+    @memcpy(hdr[0..4], "RIFF");
+    @memset(hdr[4..8], 0);
+    @memcpy(hdr[8..12], "WAVE");
+    @memset(hdr[12..16], 0);
+    try std.testing.expectEqual(Format.unknown, detectFormat(&hdr));
 }
 
 test "ImageBuffer: stride and rowSlice" {
@@ -537,5 +653,23 @@ test "PngDecoder: corrupt data returns CorruptData" {
     defer dec.deinit();
 
     const result = dec.decode(&garbage, std.testing.allocator);
+    try std.testing.expectError(DecodeError.CorruptData, result);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WebP デコードパスのテスト (libwebp decoder が必要)
+// ─────────────────────────────────────────────────────────────────────────────
+
+test "WebpDecoder: corrupt RIFF returns CorruptData" {
+    var hdr: [20]u8 = undefined;
+    @memcpy(hdr[0..4], "RIFF");
+    std.mem.writeInt(u32, hdr[4..8], 12, .little);
+    @memcpy(hdr[8..12], "WEBP");
+    @memset(hdr[12..20], 0);
+
+    var dec = webpDecoder();
+    defer dec.deinit();
+
+    const result = dec.decode(&hdr, std.testing.allocator);
     try std.testing.expectError(DecodeError.CorruptData, result);
 }

@@ -188,8 +188,8 @@ export interface AvifOptions {
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
- * Decode a JPEG or PNG buffer into raw pixel data.
- * HEIC/HEIF and other formats are not supported.
+ * Decode a JPEG, PNG, or still-image WebP buffer into raw pixel data.
+ * HEIC/HEIF, animated WebP, and other formats are not supported.
  * @throws {Error} if the input cannot be decoded
  */
 export function decode(input: Uint8Array): ImageBuffer {

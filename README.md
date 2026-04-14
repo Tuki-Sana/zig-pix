@@ -1,7 +1,7 @@
 # zigpix
 
 Zig 製の高速画像処理ライブラリです。  
-JPEG / PNG をデコードし、Lanczos-3 リサイズを経て WebP / AVIF にエンコードします。  
+JPEG / PNG / 静止画 WebP をデコードし、Lanczos-3 リサイズを経て WebP / AVIF にエンコードします。  
 **HEIC / HEIF は非対応。** 必要ならクライアントで JPEG/PNG に変換してから渡してください（HEVC 特許・対応環境の都合でコアのスコープ外）。
 
 - **AVIF エンコード**: 代表ベンチでは speed=10 が Sharp より **wall-clock で短く**、Sharp がマルチスレッドで積み上げる **CPU user 時間より遥かに軽い**（条件は下表・[比較の読み方](#比較の読み方)）
@@ -46,7 +46,7 @@ import { decode, resize, encodeWebP, encodeAvif } from "npm:zigpix/deno";
 import { decode, resize, encodeWebP, encodeAvif } from "zigpix";
 import { readFileSync, writeFileSync } from "fs";
 
-// JPEG / PNG をデコード
+// JPEG / PNG / WebP（静止画）をデコード
 const input = readFileSync("input.jpg");
 const image = decode(input);
 
@@ -66,7 +66,7 @@ if (avif) writeFileSync("output.avif", avif);
 
 ### `decode(input: Buffer | Uint8Array): ImageBuffer`
 
-JPEG または PNG をデコードして生ピクセルデータを返します。HEIC / HEIF やその他の形式は **未対応**（失敗時は `zigpix: decode failed`）。
+JPEG・PNG・静止画 WebP をデコードして生ピクセルデータを返します。HEIC / HEIF・アニメーション WebP・その他の形式は **未対応**（失敗時は `zigpix: decode failed`）。
 
 ```typescript
 interface ImageBuffer {

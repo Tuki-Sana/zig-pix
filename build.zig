@@ -232,6 +232,7 @@ fn addCLibraries(b: *std.Build, artifact: *std.Build.Step.Compile) void {
             "src/c/jpeg_decode.c",
             "src/c/png_decode.c",
             "src/c/webp_encode.c",
+            "src/c/webp_decode.c",
         },
         .flags = &.{"-std=c11"},
     });
@@ -642,6 +643,17 @@ fn addLibwebp(b: *std.Build, artifact: *std.Build.Step.Compile) void {
             "vendor/libwebp/src/enc/tree_enc.c",
             "vendor/libwebp/src/enc/vp8l_enc.c",
             "vendor/libwebp/src/enc/webp_enc.c",
+            // dec (still-image WebP — animated は bridge 側で拒否)
+            "vendor/libwebp/src/dec/alpha_dec.c",
+            "vendor/libwebp/src/dec/buffer_dec.c",
+            "vendor/libwebp/src/dec/frame_dec.c",
+            "vendor/libwebp/src/dec/idec_dec.c",
+            "vendor/libwebp/src/dec/io_dec.c",
+            "vendor/libwebp/src/dec/quant_dec.c",
+            "vendor/libwebp/src/dec/tree_dec.c",
+            "vendor/libwebp/src/dec/vp8_dec.c",
+            "vendor/libwebp/src/dec/vp8l_dec.c",
+            "vendor/libwebp/src/dec/webp_dec.c",
             // dsp (C スカラー)
             "vendor/libwebp/src/dsp/alpha_processing.c",
             "vendor/libwebp/src/dsp/cost.c",

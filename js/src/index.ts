@@ -2,7 +2,7 @@
  * zigpix — High-performance image processing (Zig-powered native binding)
  *
  * Supported operations:
- *   decode()     — JPEG / PNG → raw pixels
+ *   decode()     — JPEG / PNG / still WebP → raw pixels
  *   resize()     — Lanczos-3 high-quality resize
  *   encodeWebP() — WebP encode (lossy / lossless)
  *   encodeAvif() — AVIF encode (requires libavif on the system)
@@ -130,8 +130,8 @@ export interface AvifOptions {
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
- * Decode a JPEG or PNG buffer into raw pixel data.
- * HEIC/HEIF and other formats are not supported.
+ * Decode a JPEG, PNG, or still-image WebP buffer into raw pixel data.
+ * HEIC/HEIF, animated WebP, and other formats are not supported.
  * @throws {Error} if the input cannot be decoded
  */
 export function decode(input: Buffer | Uint8Array): ImageBuffer {

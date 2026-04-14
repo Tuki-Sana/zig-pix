@@ -1,7 +1,7 @@
 /**
  * test/e2e/e2e.deno.ts — End-to-end integration test (Deno)
  *
- * Tests the full pipeline: decode → resize → encodeWebP → encodeAvif
+ * Tests the full pipeline: decode → resize → encodeWebP → decode(WebP) → encodeAvif
  * using a real 128×128 PNG fixture file.
  *
  * Judgment criteria (intentionally loose to avoid flakes):
@@ -78,13 +78,25 @@ try {
         fail("encodeWebP header", "RIFF header not found");
       } else {
         pass(`encodeWebP — RIFF verified, len=${webp.byteLength}`);
+        try {
+          const webpImg = decode(webp);
+          if (webpImg.width !== 64 || webpImg.height !== 64) {
+            fail("decode(WebP) dimensions", `expected 64x64, got ${webpImg.width}x${webpImg.height}`);
+          } else if (webpImg.data.byteLength !== 64 * 64 * webpImg.channels) {
+            fail("decode(WebP) data length", `expected ${64 * 64 * webpImg.channels}, got ${webpImg.data.byteLength}`);
+          } else {
+            pass(`decode(WebP) — ${webpImg.width}x${webpImg.height} ch=${webpImg.channels}`);
+          }
+        } catch (e2) {
+          fail("decode(WebP)", e2 instanceof Error ? e2.message : String(e2));
+        }
       }
     }
   } catch (e) {
     fail("encodeWebP", e instanceof Error ? e.message : String(e));
   }
 
-  // ── Step 4: encodeAvif ──────────────────────────────────────────────────────
+  // ── Step 5: encodeAvif ──────────────────────────────────────────────────────
   try {
     const avif = encodeAvif(small, { quality: 60, speed: 8 });
     if (avif === null) {
@@ -108,7 +120,7 @@ try {
 }
 
 // ── Summary ──────────────────────────────────────────────────────────────────
-const TOTAL = 4;
+const TOTAL = 5;
 if (failed > 0) {
   console.error(`\n${failed} / ${TOTAL} E2E test(s) FAILED.`);
   Deno.exit(1);

@@ -373,3 +373,67 @@ test "WebPEncoder: invalid channel count returns InvalidInput" {
     const result = enc.encode(img, .{ .webp = .{} }, std.testing.allocator);
     try std.testing.expectError(EncodeError.InvalidInput, result);
 }
+
+test "WebP encode then WebpDecoder: RGB roundtrip dimensions" {
+    const W = 5;
+    const H = 5;
+    var pixels = [_]u8{33} ** (W * H * 3);
+
+    const img = decode.ImageBuffer{
+        .width = W,
+        .height = H,
+        .channels = 3,
+        .format = .rgb8,
+        .data = &pixels,
+        .allocator = std.testing.allocator,
+    };
+
+    var enc = webpEncoder();
+    defer enc.deinit();
+    var encoded = try enc.encode(img, .{ .webp = .{ .quality = 90.0 } }, std.testing.allocator);
+    defer encoded.deinit();
+
+    try std.testing.expectEqual(decode.Format.webp, decode.detectFormat(encoded.data));
+
+    var wdec = decode.webpDecoder();
+    defer wdec.deinit();
+
+    var dec_buf = try wdec.decode(encoded.data, std.testing.allocator);
+    defer dec_buf.deinit();
+
+    try std.testing.expectEqual(@as(u32, W), dec_buf.width);
+    try std.testing.expectEqual(@as(u32, H), dec_buf.height);
+    try std.testing.expectEqual(@as(u8, 3), dec_buf.channels);
+    try std.testing.expectEqual(decode.PixelFormat.rgb8, dec_buf.format);
+}
+
+test "WebP encode then WebpDecoder: RGBA lossless roundtrip" {
+    const W = 3;
+    const H = 3;
+    var pixels = [_]u8{ 11, 22, 33, 220 } ** (W * H);
+
+    const img = decode.ImageBuffer{
+        .width = W,
+        .height = H,
+        .channels = 4,
+        .format = .rgba8,
+        .data = &pixels,
+        .allocator = std.testing.allocator,
+    };
+
+    var enc = webpEncoder();
+    defer enc.deinit();
+    var encoded = try enc.encode(img, .{ .webp = .{ .lossless = true } }, std.testing.allocator);
+    defer encoded.deinit();
+
+    var wdec = decode.webpDecoder();
+    defer wdec.deinit();
+
+    var dec_buf = try wdec.decode(encoded.data, std.testing.allocator);
+    defer dec_buf.deinit();
+
+    try std.testing.expectEqual(@as(u32, W), dec_buf.width);
+    try std.testing.expectEqual(@as(u32, H), dec_buf.height);
+    try std.testing.expectEqual(@as(u8, 4), dec_buf.channels);
+    try std.testing.expectEqual(decode.PixelFormat.rgba8, dec_buf.format);
+}

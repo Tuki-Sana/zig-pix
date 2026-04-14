@@ -53,6 +53,9 @@ jobs:
       - name: Build JS wrapper (js/dist/)
         run: npm run build
 
+      - name: Overlay zig-out lib for tests (optional npm bins are stale until publish)
+        run: cp zig-out/lib/libpict.so node_modules/zigpix-linux-x64/libpict.so
+
       - name: Run FFI tests (Bun)
         uses: oven-sh/setup-bun@v2
         # Bun テストは別ステップで実行
@@ -134,6 +137,9 @@ jobs:
 
       - name: Build JS wrapper (js/dist/)
         run: npm run build
+
+      - name: Overlay zig-out lib for tests (optional npm bins are stale until publish)
+        run: cp zig-out/lib/libpict.dylib node_modules/zigpix-darwin-arm64/libpict.dylib
 
       - name: Run FFI tests (Bun)
         uses: oven-sh/setup-bun@v2

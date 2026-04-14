@@ -77,8 +77,9 @@ fn runPipeline(allocator: std.mem.Allocator, cli: CliArgs) !void {
     var decoder = switch (fmt) {
         .jpeg => pict.decode.jpegDecoder(),
         .png  => pict.decode.pngDecoder(),
+        .webp => pict.decode.webpDecoder(),
         .unknown => {
-            std.log.err("Unsupported input format (expected JPEG or PNG): {s}", .{cli.input});
+            std.log.err("Unsupported input format (expected JPEG, PNG, or WebP): {s}", .{cli.input});
             return error.UnsupportedFormat;
         },
     };

@@ -70,7 +70,8 @@ inline fn mul3SizeChecked(a: usize, b: usize, c: usize) ?usize {
 }
 
 /// @deprecated Use pict_decode_v2 which returns out_len for safe buffer release.
-/// JPEG または PNG をデコードして RGBA/RGB ピクセル列を返す。HEIC/HEIF は非対応。
+/// JPEG / PNG / 静止画 WebP をデコードして RGB または RGBA ピクセル列を返す。
+/// HEIC/HEIF・アニメーション WebP は非対応。
 /// 成功時: ピクセルデータへのポインタ (pict_free_buffer(ptr, w*h*ch) で解放)。
 /// 失敗時: null。
 export fn pict_decode(
@@ -84,7 +85,8 @@ export fn pict_decode(
     return pict_decode_v2(data, len, out_w, out_h, out_ch, &tmp_len);
 }
 
-/// JPEG または PNG をデコードして RGBA/RGB ピクセル列を返す。HEIC/HEIF は非対応。
+/// JPEG / PNG / 静止画 WebP をデコードして RGB または RGBA ピクセル列を返す。
+/// HEIC/HEIF・アニメーション WebP は非対応。
 /// 成功時: ピクセルデータへのポインタ (pict_free_buffer(ptr, out_len) で解放)。
 /// 失敗時: null。out_len は変更しない。
 export fn pict_decode_v2(
@@ -101,6 +103,7 @@ export fn pict_decode_v2(
     var decoder = switch (fmt) {
         .jpeg    => decode.jpegDecoder(),
         .png     => decode.pngDecoder(),
+        .webp    => decode.webpDecoder(),
         .unknown => return null,
     };
     defer decoder.deinit();
@@ -343,6 +346,30 @@ test "pict_decode_v2: PNG デコード成功 + out_len == w*h*ch (成功系)" {
     try std.testing.expect(out_h > 0);
     try std.testing.expect(out_ch > 0);
     try std.testing.expectEqual(@as(usize, out_w) * out_h * out_ch, out_len);
+}
+
+test "pict_decode_v2: WebP (pict_encode_webp → pict_decode_v2)" {
+    const W: u32 = 4;
+    const H: u32 = 4;
+    const CH: u8 = 3;
+    var pixels = [_]u8{88} ** (W * H * CH);
+    var enc_len: usize = 0;
+    const webp_ptr = pict_encode_webp(pixels[0..].ptr, W, H, CH, 80.0, false, &enc_len) orelse
+        return error.EncodeFailed;
+    defer pict_free_buffer(webp_ptr, enc_len);
+
+    var out_w: u32 = 0;
+    var out_h: u32 = 0;
+    var out_ch: u8 = 0;
+    var out_len: usize = 0;
+    const pix = pict_decode_v2(webp_ptr, enc_len, &out_w, &out_h, &out_ch, &out_len) orelse
+        return error.DecodeFailed;
+    defer pict_free_buffer(pix, out_len);
+
+    try std.testing.expectEqual(W, out_w);
+    try std.testing.expectEqual(H, out_h);
+    try std.testing.expectEqual(CH, out_ch);
+    try std.testing.expectEqual(@as(usize, W) * H * CH, out_len);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
