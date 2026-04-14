@@ -535,6 +535,13 @@ zig llvm-nm -D zig-out/linux-x86_64/libpict.so | grep pict_encode_avif  # シン
 
 ## Phase 11 候補・既知の制約事項
 
+### 今後の優先順位（運用メモ）
+
+1. **tsukasa-art 統合・転送最適化**（`zigpix` 更新・ブラウザ→VPS のフォーマット）
+2. **Phase 12-B / 12-C**（zigpix WebP encode、`<picture>` で AVIF+WebP 等）— 要件が付いたら
+3. **zigpix-wasm の Pages 実利用確認**（任意）
+4. **Phase 5**（`zig build wasm` / Workers）— エッジで本体 pict を動かす方針が付いたら
+
 ### zigpix サーバーサイド統合（tsukasa-art PoC）
 
 `tsukasa-art` に zigpix を組み込み、Sharp を置き換えて AVIF 変換をサーバーサイドで実行。
