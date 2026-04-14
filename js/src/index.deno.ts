@@ -3,7 +3,7 @@
  * Deno entry point using Deno.dlopen
  *
  * Supported operations:
- *   decode()     — JPEG / PNG / still WebP → raw pixels
+ *   decode()     — JPEG / PNG / still WebP → raw pixels（埋め込み ICC があれば返す）
  *   resize()     — Lanczos-3 high-quality resize
  *   encodeWebP() — WebP encode (lossy / lossless)
  *   encodeAvif() — AVIF encode
@@ -23,11 +23,13 @@
  */
 
 import { createRequire } from "node:module";
+import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import process from "node:process";
 
 // ── Library path resolution ───────────────────────────────────────────────────
+// 解決順は index.ts の resolveLibPath と同じ（ZIGPIX_LIB → ../../zig-out → optional）。
 
 function resolveLibPath(): string {
   const plat = process.platform;
@@ -43,22 +45,33 @@ function resolveLibPath(): string {
   const ext     = plat === "darwin" ? "dylib" : "so";
   const pkgName = `zigpix-${plat}-${cpu}`;
 
+  const fromEnv = process.env.ZIGPIX_LIB?.trim();
+  if (fromEnv && existsSync(fromEnv)) {
+    return fromEnv;
+  }
+
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const zigOut = join(__dirname, `../../zig-out/lib/libpict.${ext}`);
+  if (existsSync(zigOut)) {
+    return zigOut;
+  }
+
   try {
-    // Production: loaded from optional npm platform package
     const req     = createRequire(import.meta.url);
     const pkgRoot = dirname(req.resolve(`${pkgName}/package.json`));
     return join(pkgRoot, `libpict.${ext}`);
   } catch {
-    // Development fallback: local zig-out from source build
-    const __dirname = dirname(fileURLToPath(import.meta.url));
-    return join(__dirname, `../../zig-out/lib/libpict.${ext}`);
+    throw new Error(
+      `zigpix: libpict.${ext} が見つかりません。` +
+        `\`zig build lib\` で ${zigOut} を生成するか、ZIGPIX_LIB を設定するか、optional ${pkgName} を入れてください。`,
+    );
   }
 }
 
 // ── Deno.dlopen FFI bindings ──────────────────────────────────────────────────
 
 const _lib = Deno.dlopen(resolveLibPath(), {
-  pict_decode_v2: {
+  pict_decode_v3: {
     parameters: [
       "pointer", // const uint8 *data
       "u64",     // uint64 len
@@ -66,6 +79,8 @@ const _lib = Deno.dlopen(resolveLibPath(), {
       "pointer", // uint32 *out_h
       "pointer", // uint8  *out_ch
       "pointer", // uint64 *out_len
+      "pointer", // uint8 **out_icc  (usize 格納の 8 バイト)
+      "pointer", // uint64 *out_icc_len
     ],
     result: "pointer",
   },
@@ -82,14 +97,16 @@ const _lib = Deno.dlopen(resolveLibPath(), {
     ],
     result: "pointer",
   },
-  pict_encode_webp: {
+  pict_encode_webp_v2: {
     parameters: [
       "pointer", // const uint8 *pixels
-      "u32",     // uint32 width
-      "u32",     // uint32 height
-      "u8",      // uint8 channels
-      "f32",     // float quality
-      "bool",    // bool lossless
+      "u32",     // width
+      "u32",     // height
+      "u8",      // channels
+      "f32",     // quality
+      "bool",    // lossless
+      "pointer", // icc (nullable)
+      "u64",     // icc_len
       "pointer", // uint64 *out_len
     ],
     result: "pointer",
@@ -151,6 +168,8 @@ export interface ImageBuffer {
   height: number;
   /** 3 = RGB, 4 = RGBA */
   channels: number;
+  /** 埋め込み ICC（無い場合は省略） */
+  icc?: Uint8Array;
 }
 
 export interface ResizeOptions {
@@ -190,6 +209,7 @@ export interface AvifOptions {
 /**
  * Decode a JPEG, PNG, or still-image WebP buffer into raw pixel data.
  * HEIC/HEIF, animated WebP, and other formats are not supported.
+ * Embedded ICC (if any) is returned in `icc`.
  * @throws {Error} if the input cannot be decoded
  */
 export function decode(input: Uint8Array): ImageBuffer {
@@ -197,14 +217,18 @@ export function decode(input: Uint8Array): ImageBuffer {
   const outHBuf   = new Uint8Array(4);
   const outChBuf  = new Uint8Array(1);
   const outLenBuf = new Uint8Array(8);
+  const iccPtrSlot = new BigUint64Array(1);
+  const iccLenBuf  = new BigUint64Array(1);
 
-  const ptr = _lib.symbols.pict_decode_v2(
+  const ptr = _lib.symbols.pict_decode_v3(
     Deno.UnsafePointer.of(input),
     BigInt(input.byteLength),
     Deno.UnsafePointer.of(outWBuf),
     Deno.UnsafePointer.of(outHBuf),
     Deno.UnsafePointer.of(outChBuf),
     Deno.UnsafePointer.of(outLenBuf),
+    Deno.UnsafePointer.of(iccPtrSlot),
+    Deno.UnsafePointer.of(iccLenBuf),
   );
 
   if (ptr === null) {
@@ -212,12 +236,21 @@ export function decode(input: Uint8Array): ImageBuffer {
   }
 
   const len = readU64(outLenBuf);
-  return {
+  const out: ImageBuffer = {
     data:     copyAndFree(ptr, len),
     width:    readU32(outWBuf),
     height:   readU32(outHBuf),
     channels: outChBuf[0],
   };
+
+  const iccBits = iccPtrSlot[0];
+  const iccLen = iccLenBuf[0];
+  if (iccBits !== 0n && iccLen > 0n) {
+    const iccPtr = Deno.UnsafePointer.create(iccBits);
+    out.icc = copyAndFree(iccPtr, iccLen);
+  }
+
+  return out;
 }
 
 /**
@@ -248,12 +281,16 @@ export function resize(image: ImageBuffer, options: ResizeOptions): ImageBuffer 
   if (ptr === null) throw new Error("zigpix: resize failed");
 
   const len = readU64(outLenBuf);
-  return {
+  const out: ImageBuffer = {
     data:     copyAndFree(ptr, len),
     width,
     height,
     channels: image.channels,
   };
+  if (image.icc !== undefined && image.icc.byteLength > 0) {
+    out.icc = new Uint8Array(image.icc);
+  }
+  return out;
 }
 
 /**
@@ -264,10 +301,13 @@ export function encodeWebP(image: ImageBuffer, options: WebPOptions = {}): Uint8
   const { quality = 92, lossless = false } = options;
 
   const outLenBuf = new Uint8Array(8);
-  const ptr = _lib.symbols.pict_encode_webp(
+  const hasIcc = image.icc !== undefined && image.icc.byteLength > 0;
+  const ptr = _lib.symbols.pict_encode_webp_v2(
     Deno.UnsafePointer.of(image.data),
     image.width, image.height, image.channels,
     quality, lossless,
+    hasIcc ? Deno.UnsafePointer.of(image.icc!) : null,
+    hasIcc ? BigInt(image.icc!.byteLength) : 0n,
     Deno.UnsafePointer.of(outLenBuf),
   );
 

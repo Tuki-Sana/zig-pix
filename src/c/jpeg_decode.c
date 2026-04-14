@@ -5,9 +5,11 @@
  * API. Error handling uses setjmp/longjmp so that JPEG errors do not abort().
  *
  * Exported symbols:
- *   pict_jpeg_decode   — decode JPEG bytes → raw RGB pixels
- *   pict_jpeg_free     — free buffers allocated by this module
- *   pict_jpeg_encode   — encode raw RGB → JPEG bytes (used by tests)
+ *   pict_jpeg_decode           — decode JPEG bytes → raw RGB + optional ICC (APP2)
+ *   pict_jpeg_free             — free pixel buffer from decode / JPEG from encode
+ *   pict_jpeg_icc_free         — free ICC buffer from pict_jpeg_decode (malloc)
+ *   pict_jpeg_encode           — encode raw RGB → JPEG bytes (used by tests)
+ *   pict_jpeg_encode_with_icc  — encode RGB → JPEG with embedded ICC (tests)
  */
 
 #include <stdio.h>   /* jpeglib.h needs FILE */
@@ -38,6 +40,11 @@ static void pict_error_exit(j_common_ptr cinfo) {
  * On success, *out_data is allocated with malloc() and must be freed with
  * pict_jpeg_free().  The pixel layout is tightly-packed, row-major RGB:
  *   byte offset = row * width * 3 + col * 3
+ *
+ * If out_icc and out_icc_len are both non-NULL, APP2 ICC markers are preserved
+ * during read_header; after scanlines, jpeg_read_icc_profile() fills
+ * *out_icc (malloc) and *out_icc_len, or leaves *out_icc = NULL / len 0 if none.
+ * Free *out_icc with pict_jpeg_icc_free() when non-NULL.
  */
 int pict_jpeg_decode(
     const unsigned char *src,
@@ -45,7 +52,9 @@ int pict_jpeg_decode(
     unsigned char      **out_data,
     unsigned int        *out_width,
     unsigned int        *out_height,
-    unsigned int        *out_channels)
+    unsigned int        *out_channels,
+    unsigned char      **out_icc,
+    unsigned int        *out_icc_len)
 {
     PictJpegErr jerr;
     struct jpeg_decompress_struct cinfo;
@@ -58,8 +67,15 @@ int pict_jpeg_decode(
         return -1;
     }
 
+    if (out_icc)
+        *out_icc = NULL;
+    if (out_icc_len)
+        *out_icc_len = 0;
+
     jpeg_create_decompress(&cinfo);
     jpeg_mem_src(&cinfo, src, src_len);
+    if (out_icc && out_icc_len)
+        jpeg_save_markers(&cinfo, JPEG_APP0 + 2, 0xFFFF);
     (void)jpeg_read_header(&cinfo, TRUE);
 
     cinfo.out_color_space = JCS_RGB;
@@ -93,6 +109,15 @@ int pict_jpeg_decode(
         (void)jpeg_read_scanlines(&cinfo, &row, 1);
     }
 
+    if (out_icc && out_icc_len) {
+        JOCTET *icc_profile = NULL;
+        unsigned int icc_len = 0;
+        if (jpeg_read_icc_profile(&cinfo, &icc_profile, &icc_len)) {
+            *out_icc = (unsigned char *)icc_profile;
+            *out_icc_len = icc_len;
+        }
+    }
+
     (void)jpeg_finish_decompress(&cinfo);
     jpeg_destroy_decompress(&cinfo);
 
@@ -106,6 +131,10 @@ int pict_jpeg_decode(
 /* Free a buffer allocated by pict_jpeg_decode or pict_jpeg_encode. */
 void pict_jpeg_free(unsigned char *data) {
     free(data);
+}
+
+void pict_jpeg_icc_free(unsigned char *icc) {
+    free(icc);
 }
 
 /* ── Encode: raw RGB → in-memory JPEG (used by tests) ───────────────────── */
@@ -147,6 +176,58 @@ int pict_jpeg_encode(
     jpeg_set_defaults(&cinfo);
     jpeg_set_quality(&cinfo, quality, TRUE);
     jpeg_start_compress(&cinfo, TRUE);
+
+    unsigned long row_stride = (unsigned long)width * 3;
+    while (cinfo.next_scanline < cinfo.image_height) {
+        const unsigned char *row = rgb + (unsigned long)cinfo.next_scanline * row_stride;
+        (void)jpeg_write_scanlines(&cinfo, (JSAMPARRAY)&row, 1);
+    }
+
+    jpeg_finish_compress(&cinfo);
+    jpeg_destroy_compress(&cinfo);
+    return 0;
+}
+
+/*
+ * Like pict_jpeg_encode but embeds an ICC profile via APP2 (jpeg_write_icc_profile).
+ * icc must be non-NULL and icc_len > 0. Used by unit tests for ICC round-trip.
+ */
+int pict_jpeg_encode_with_icc(
+    const unsigned char *rgb,
+    unsigned int         width,
+    unsigned int         height,
+    int                  quality,
+    const unsigned char *icc,
+    unsigned int         icc_len,
+    unsigned char      **out_jpeg,
+    unsigned long       *out_len)
+{
+    PictJpegErr jerr;
+    struct jpeg_compress_struct cinfo;
+
+    if (!icc || icc_len == 0)
+        return -1;
+
+    cinfo.err           = jpeg_std_error(&jerr.pub);
+    jerr.pub.error_exit = pict_error_exit;
+
+    if (setjmp(jerr.jmpbuf)) {
+        jpeg_destroy_compress(&cinfo);
+        return -1;
+    }
+
+    jpeg_create_compress(&cinfo);
+    jpeg_mem_dest(&cinfo, out_jpeg, out_len);
+
+    cinfo.image_width      = width;
+    cinfo.image_height     = height;
+    cinfo.input_components = 3;
+    cinfo.in_color_space   = JCS_RGB;
+
+    jpeg_set_defaults(&cinfo);
+    jpeg_set_quality(&cinfo, quality, TRUE);
+    jpeg_start_compress(&cinfo, TRUE);
+    jpeg_write_icc_profile(&cinfo, icc, icc_len);
 
     unsigned long row_stride = (unsigned long)width * 3;
     while (cinfo.next_scanline < cinfo.image_height) {

@@ -42,14 +42,20 @@ pub const platform = @import("platform.zig");
 //   uint8_t* pict_decode_v2(const uint8_t* data, size_t len,
 //                           uint32_t* out_w, uint32_t* out_h, uint8_t* out_ch,
 //                           size_t* out_len);
+//   uint8_t* pict_decode_v3(const uint8_t* data, size_t len,
+//                           uint32_t* out_w, uint32_t* out_h, uint8_t* out_ch,
+//                           size_t* out_len,
+//                           uint8_t** out_icc, size_t* out_icc_len);
+//   // out_icc / out_icc_len: 両方 NULL なら v2 と同様 ICC は破棄。
+//   // 両方非 NULL なら、埋め込み ICC があるとき *out_icc を割り当て *out_icc_len を設定（無ければ NULL/0）。
+//   // *out_icc は pict_free_buffer(*out_icc, *out_icc_len) で解放。
 //   uint8_t* pict_resize(const uint8_t* src,
 //                        uint32_t src_w, uint32_t src_h, uint8_t channels,
 //                        uint32_t dst_w, uint32_t dst_h, uint32_t n_threads,
 //                        size_t* out_len);
-//   uint8_t* pict_encode_webp(const uint8_t* pixels,
-//                             uint32_t width, uint32_t height, uint8_t channels,
-//                             float quality, bool lossless,
-//                             size_t* out_len);
+//   uint8_t* pict_encode_webp(const uint8_t* pixels, ...);  // ICC なし（後方互換）
+//   uint8_t* pict_encode_webp_v2(..., const uint8_t* icc, size_t icc_len);
+//   // icc == NULL または icc_len == 0 で従来と同じ。それ以外は WebP ICCP に埋め込む。
 //   uint8_t* pict_encode_avif(const uint8_t* pixels,
 //                             uint32_t width, uint32_t height, uint8_t channels,
 //                             uint8_t quality, uint8_t speed,
@@ -125,6 +131,62 @@ export fn pict_decode_v2(
     return ptr;
 }
 
+/// `pict_decode_v2` と同じだが、`out_icc` / `out_icc_len` で埋め込み ICC を返せる。
+/// - 両方 NULL: ICC は破棄（v2 と同じ）。
+/// - 片方だけ NULL: null を返す（どちらも渡すか、どちらも渡さないか）。
+/// - 両方非 NULL: 成功時、ICC が無ければ `*out_icc = NULL`, `*out_icc_len = 0`。
+///   あれば `*out_icc` / `*out_icc_len` に所有権を移し、`pict_free_buffer(*out_icc, *out_icc_len)` で解放。
+export fn pict_decode_v3(
+    data: [*c]const u8,
+    len: usize,
+    out_w: ?*u32,
+    out_h: ?*u32,
+    out_ch: ?*u8,
+    out_len: ?*usize,
+    out_icc: ?*?[*]u8,
+    out_icc_len: ?*usize,
+) ?[*]u8 {
+    if (data == null or out_w == null or out_h == null or out_ch == null or out_len == null) return null;
+    if ((out_icc == null) != (out_icc_len == null)) return null;
+
+    const want_icc = out_icc != null and out_icc_len != null;
+
+    const slice = data[0..len];
+    const fmt = decode.detectFormat(slice);
+    var decoder = switch (fmt) {
+        .jpeg    => decode.jpegDecoder(),
+        .png     => decode.pngDecoder(),
+        .webp    => decode.webpDecoder(),
+        .unknown => return null,
+    };
+    defer decoder.deinit();
+
+    var buf = decoder.decode(slice, ffi_alloc) catch return null;
+
+    out_w.?.* = buf.width;
+    out_h.?.* = buf.height;
+    out_ch.?.* = buf.channels;
+    if (out_len) |ol| ol.* = buf.data.len;
+    const ptr = buf.data.ptr;
+    buf.data = &[_]u8{};
+
+    if (want_icc) {
+        out_icc.?.* = null;
+        out_icc_len.?.* = 0;
+        if (buf.icc) |icc| {
+            out_icc.?.* = icc.ptr;
+            out_icc_len.?.* = icc.len;
+            buf.icc = null;
+        }
+    } else {
+        if (buf.icc) |icc| {
+            buf.allocator.free(icc);
+            buf.icc = null;
+        }
+    }
+    return ptr;
+}
+
 /// ピクセルデータを Lanczos-3 でリサイズする。
 /// 成功時: リサイズ済みピクセルデータ (pict_free_buffer(ptr, out_len) で解放)。
 /// 失敗時: null。out_len は変更しない。
@@ -160,9 +222,7 @@ export fn pict_resize(
     return dst_buf.ptr;
 }
 
-/// ピクセルデータを WebP にエンコードする。
-/// 成功時: WebP バイト列 (pict_free_buffer(ptr, out_len) で解放)。
-/// 失敗時: null。out_len は変更しない。
+/// ピクセルデータを WebP にエンコードする（埋め込み ICC なし）。`pict_encode_webp_v2(..., null, 0)` と同じ。
 export fn pict_encode_webp(
     pixels: [*c]const u8,
     width: u32,
@@ -172,8 +232,29 @@ export fn pict_encode_webp(
     lossless: bool,
     out_len: ?*usize,
 ) ?[*]u8 {
+    return pict_encode_webp_v2(pixels, width, height, channels, quality, lossless, null, 0, out_len);
+}
+
+/// `icc` / `icc_len` で埋め込み ICC を渡す（`icc == null` または `icc_len == 0` で ICC なし）。
+export fn pict_encode_webp_v2(
+    pixels: [*c]const u8,
+    width: u32,
+    height: u32,
+    channels: u8,
+    quality: f32,
+    lossless: bool,
+    /// 埋め込み ICC。`icc_len == 0` のときは未使用（`icc` は NULL でよい）。
+    icc: ?*const u8,
+    icc_len: usize,
+    out_len: ?*usize,
+) ?[*]u8 {
     if (pixels == null or out_len == null or width == 0 or height == 0 or channels == 0) return null;
     const pixel_size = mul3SizeChecked(width, height, channels) orelse return null;
+
+    const icc_z: ?[]u8 = if (icc != null and icc_len > 0)
+        @constCast(@as([*]const u8, @ptrCast(icc.?))[0..icc_len])
+    else
+        null;
 
     const img = decode.ImageBuffer{
         .width     = width,
@@ -181,7 +262,7 @@ export fn pict_encode_webp(
         .channels  = channels,
         .format    = if (channels == 4) .rgba8 else .rgb8,
         .data      = @constCast(pixels[0..pixel_size]),
-        .icc       = null,
+        .icc       = icc_z,
         .allocator = ffi_alloc,
     };
 
@@ -195,7 +276,7 @@ export fn pict_encode_webp(
 
     if (out_len) |ol| ol.* = encoded.data.len;
     const ptr = encoded.data.ptr;
-    encoded.data = &[_]u8{}; // deinit が free しないよう長さを 0 に
+    encoded.data = &[_]u8{};
     return ptr;
 }
 
@@ -242,8 +323,9 @@ export fn pict_encode_avif(
     return p;
 }
 
-/// pict_decode / pict_decode_v2 / pict_resize / pict_encode_webp / pict_encode_avif
+/// pict_decode / pict_decode_v2 / pict_decode_v3 / pict_resize / pict_encode_webp / pict_encode_webp_v2 / pict_encode_avif
 /// が返したバッファを解放する。
+/// pict_decode_v3 の埋め込み ICC バッファ (*out_icc) も同じくこの関数で解放する。
 export fn pict_free_buffer(ptr: [*]u8, len: usize) void {
     ffi_alloc.free(ptr[0..len]);
 }
@@ -379,6 +461,53 @@ test "pict_decode_v2: WebP (pict_encode_webp → pict_decode_v2)" {
     try std.testing.expectEqual(@as(usize, W) * H * CH, out_len);
 }
 
+test "pict_decode_v3: iCCP 付き PNG で ICC バッファを返す" {
+    const path = "vendor/libavif/tests/data/paris_icc_exif_xmp.png";
+    const bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, path, 4 * 1024 * 1024);
+    defer std.testing.allocator.free(bytes);
+
+    var out_w: u32 = 0;
+    var out_h: u32 = 0;
+    var out_ch: u8 = 0;
+    var out_len: usize = 0;
+    var icc_ptr: ?[*]u8 = null;
+    var icc_len: usize = 0;
+    const pix = pict_decode_v3(bytes.ptr, bytes.len, &out_w, &out_h, &out_ch, &out_len, &icc_ptr, &icc_len) orelse
+        return error.DecodeFailed;
+    defer pict_free_buffer(pix, out_len);
+    defer if (icc_ptr) |p| pict_free_buffer(p, icc_len);
+
+    try std.testing.expect(icc_ptr != null);
+    try std.testing.expect(icc_len >= 128);
+}
+
+test "pict_decode_v3: ICC 不要のとき out_icc は null のまま" {
+    const W: c_uint = 2;
+    const H: c_uint = 2;
+    const CH: c_uint = 3;
+    var pixels = [_]u8{ 10, 20, 30 } ** (W * H);
+
+    var png_ptr: ?[*]u8 = null;
+    var png_len: c_ulong = 0;
+    const rc = pict_png_encode(&pixels, W, H, CH, &png_ptr, &png_len);
+    try std.testing.expectEqual(@as(c_int, 0), rc);
+    defer pict_png_free(png_ptr.?);
+
+    const png_slice = png_ptr.?[0..png_len];
+    var out_w: u32 = 0;
+    var out_h: u32 = 0;
+    var out_ch: u8 = 0;
+    var out_len: usize = 0;
+    var icc_ptr: ?[*]u8 = null;
+    var icc_len: usize = 0xDEAD;
+    const pix = pict_decode_v3(png_slice.ptr, png_len, &out_w, &out_h, &out_ch, &out_len, &icc_ptr, &icc_len) orelse
+        return error.DecodeFailed;
+    defer pict_free_buffer(pix, out_len);
+
+    try std.testing.expectEqual(@as(?[*]u8, null), icc_ptr);
+    try std.testing.expectEqual(@as(usize, 0), icc_len);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // null out arg — null 返却のみ検証 (Category A)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -402,6 +531,17 @@ test "pict_decode_v2: out_len=null は null を返す (Category A)" {
     var out_ch: u8 = 0;
     // out_len=null は必須引数欠如なので即 null 返却
     const ptr = pict_decode_v2(bad[0..].ptr, bad.len, &out_w, &out_h, &out_ch, null);
+    try std.testing.expectEqual(@as(?[*]u8, null), ptr);
+}
+
+test "pict_decode_v3: out_icc と out_icc_len の片方だけ指定は null (Category A)" {
+    const bad = [_]u8{ 0x00, 0x01, 0x02 };
+    var out_w: u32 = 0;
+    var out_h: u32 = 0;
+    var out_ch: u8 = 0;
+    var out_len: usize = 0;
+    var icc_ptr: ?[*]u8 = null;
+    const ptr = pict_decode_v3(bad[0..].ptr, bad.len, &out_w, &out_h, &out_ch, &out_len, &icc_ptr, null);
     try std.testing.expectEqual(@as(?[*]u8, null), ptr);
 }
 

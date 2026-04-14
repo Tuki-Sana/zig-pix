@@ -2,7 +2,7 @@
  * zigpix — High-performance image processing (Zig-powered native binding)
  *
  * Supported operations:
- *   decode()     — JPEG / PNG / still WebP → raw pixels
+ *   decode()     — JPEG / PNG / still WebP → raw pixels（埋め込み ICC があれば返す）
  *   resize()     — Lanczos-3 high-quality resize
  *   encodeWebP() — WebP encode (lossy / lossless)
  *   encodeAvif() — AVIF encode (requires libavif on the system)
@@ -19,12 +19,20 @@
  */
 
 import koffi from "koffi";
+import { existsSync } from "fs";
 import { platform, arch } from "os";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { createRequire } from "module";
 
 // ── Library loading ───────────────────────────────────────────────────────────
+//
+// 解決順（リリース初期: リポジトリ内のビルド成果物を優先し、古い optional より新シンボルを使いやすくする）:
+//   1. 環境変数 ZIGPIX_LIB（存在するファイルパスのみ）
+//   2. このモジュールからの相対 ../../zig-out/lib/libpict.{dylib,so}（zig build lib 済みなら）
+//   3. optionalDependency zigpix-<platform>-<arch> 内の libpict
+//
+// 本番 npm のみの環境では 2 が無いので 3 が使われる。プラットフォームパッケージは新 lib で再 publish すること。
 
 function resolveLibPath(): string {
   const plat = platform();
@@ -40,15 +48,27 @@ function resolveLibPath(): string {
   const ext = plat === "darwin" ? "dylib" : "so";
   const pkgName = `zigpix-${plat}-${cpu}`;
 
+  const fromEnv = process.env.ZIGPIX_LIB?.trim();
+  if (fromEnv && existsSync(fromEnv)) {
+    return fromEnv;
+  }
+
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const zigOut = join(__dirname, `../../zig-out/lib/libpict.${ext}`);
+  if (existsSync(zigOut)) {
+    return zigOut;
+  }
+
   try {
-    // Production: loaded from optional npm platform package
     const req = createRequire(import.meta.url);
     const pkgRoot = dirname(req.resolve(`${pkgName}/package.json`));
     return join(pkgRoot, `libpict.${ext}`);
   } catch {
-    // Development fallback: local zig-out from source build
-    const __dirname = dirname(fileURLToPath(import.meta.url));
-    return join(__dirname, `../../zig-out/lib/libpict.${ext}`);
+    throw new Error(
+      `zigpix: libpict.${ext} が見つかりません。` +
+        `リポジトリなら \`zig build lib\` で ${zigOut} を生成するか、` +
+        `環境変数 ZIGPIX_LIB にフルパスを設定するか、optional ${pkgName} を入れてください。`,
+    );
   }
 }
 
@@ -56,16 +76,16 @@ const _lib = koffi.load(resolveLibPath());
 
 // ── FFI bindings (internal) ───────────────────────────────────────────────────
 
-const _decode_v2 = _lib.func(
-  "uint8 *pict_decode_v2(const uint8 *data, uint64 len, uint32 *out_w, uint32 *out_h, uint8 *out_ch, uint64 *out_len)"
+const _decode_v3 = _lib.func(
+  "uint8 *pict_decode_v3(const uint8 *data, uint64 len, uint32 *out_w, uint32 *out_h, uint8 *out_ch, uint64 *out_len, _Out_ uint8 **out_icc, uint64 *out_icc_len)"
 );
 
 const _resize = _lib.func(
   "uint8 *pict_resize(const uint8 *src, uint32 src_w, uint32 src_h, uint8 channels, uint32 dst_w, uint32 dst_h, uint32 n_threads, uint64 *out_len)"
 );
 
-const _encode_webp = _lib.func(
-  "uint8 *pict_encode_webp(const uint8 *pixels, uint32 width, uint32 height, uint8 channels, float quality, bool lossless, uint64 *out_len)"
+const _encode_webp_v2 = _lib.func(
+  "uint8 *pict_encode_webp_v2(const uint8 *pixels, uint32 width, uint32 height, uint8 channels, float quality, bool lossless, uint8 *icc, uint64 icc_len, uint64 *out_len)"
 );
 
 const _encode_avif = _lib.func(
@@ -93,6 +113,11 @@ export interface ImageBuffer {
   height: number;
   /** 3 = RGB, 4 = RGBA */
   channels: number;
+  /**
+   * 埋め込み ICC プロファイル（JPEG APP2 / PNG iCCP / WebP ICCP 等）。
+   * 無い画像では省略される。
+   */
+  icc?: Buffer;
 }
 
 export interface ResizeOptions {
@@ -132,6 +157,8 @@ export interface AvifOptions {
 /**
  * Decode a JPEG, PNG, or still-image WebP buffer into raw pixel data.
  * HEIC/HEIF, animated WebP, and other formats are not supported.
+ * When the file contains an embedded ICC profile, it is copied into `icc`
+ * (same memory contract as `data`: native memory is freed before return).
  * @throws {Error} if the input cannot be decoded
  */
 export function decode(input: Buffer | Uint8Array): ImageBuffer {
@@ -141,18 +168,27 @@ export function decode(input: Buffer | Uint8Array): ImageBuffer {
   const outH   = new Uint32Array(1);
   const outCh  = new Uint8Array(1);
   const outLen = new BigUint64Array(1);
+  const iccPtrSlot: unknown[] = [null];
+  const iccLen = new BigUint64Array(1);
 
-  const ptr = _decode_v2(buf, BigInt(buf.byteLength), outW, outH, outCh, outLen);
+  const ptr = _decode_v3(buf, BigInt(buf.byteLength), outW, outH, outCh, outLen, iccPtrSlot, iccLen);
   if (ptr === null) {
     throw new Error("zigpix: decode failed (unsupported format or corrupt data)");
   }
 
-  return {
+  const out: ImageBuffer = {
     data: copyAndFree(ptr, outLen[0]),
     width:    outW[0],
     height:   outH[0],
     channels: outCh[0],
   };
+
+  const iccNative = iccPtrSlot[0];
+  if (iccNative != null && iccLen[0] > 0n) {
+    out.icc = copyAndFree(iccNative, iccLen[0]);
+  }
+
+  return out;
 }
 
 /**
@@ -181,12 +217,16 @@ export function resize(image: ImageBuffer, options: ResizeOptions): ImageBuffer 
   );
   if (ptr === null) throw new Error("zigpix: resize failed");
 
-  return {
+  const out: ImageBuffer = {
     data:     copyAndFree(ptr, outLen[0]),
     width,
     height,
     channels: image.channels,
   };
+  if (image.icc !== undefined && image.icc.byteLength > 0) {
+    out.icc = Buffer.from(image.icc);
+  }
+  return out;
 }
 
 /**
@@ -197,10 +237,14 @@ export function encodeWebP(image: ImageBuffer, options: WebPOptions = {}): Buffe
   const { quality = 92, lossless = false } = options;
 
   const outLen = new BigUint64Array(1);
-  const ptr = _encode_webp(
+  const icc = image.icc;
+  const iccLen = icc !== undefined && icc.byteLength > 0 ? BigInt(icc.byteLength) : 0n;
+  const ptr = _encode_webp_v2(
     image.data,
     image.width, image.height, image.channels,
     quality, lossless,
+    icc !== undefined && icc.byteLength > 0 ? icc : null,
+    iccLen,
     outLen,
   );
   if (ptr === null) throw new Error("zigpix: WebP encoding failed");

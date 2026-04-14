@@ -7,7 +7,7 @@ const std = @import("std");
 //   zig build                        → Native dev binary (Mac ARM, Debug)
 //   zig build -Doptimize=ReleaseFast → Native release
 //   zig build linux                  → Linux x86_64 cross-compile (ReleaseFast)
-//   zig build wasm                   → WebAssembly / WASI (ReleaseSmall)
+//   zig build wasm                   → WebAssembly / WASI (実験用; ネイティブ decode/ICC/WebP パス非搭載。npm zigpix-wasm は別系統)
 //   zig build lib                    → Shared library for FFI (.dylib / .so)
 //   zig build lib-linux              → Linux x86_64 shared library for FFI (.so)
 //   zig build test                   → Unit tests (Zig + C ライブラリ、JPEG/PNG/WebP パス含む)
@@ -116,7 +116,10 @@ pub fn build(b: *std.Build) void {
         .dest_dir = .{ .override = .{ .custom = "linux-x86_64" } },
     }).step);
 
-    // ── WebAssembly / WASI (C ライブラリは Phase 5 で接続) ───────────────────
+    // ── WebAssembly / WASI ───────────────────────────────────────────────────
+    // `zig build wasm` は Zig の root を wasm32-wasi にコンパイルする実験用ターゲット。
+    // 現状この成果物は **ネイティブ FFI（libjpeg/libpng/libwebp 経由の decode・ICC・WebP encode）と同等の機能を持たない**。
+    // ブラウザ向け配布は npm の `zigpix-wasm`（Emscripten で libavif 静的リンクの AVIF エンコード専用）を正とする。
     const wasm_exe = b.addExecutable(.{
         .name = "pict",
         .root_source_file = b.path("src/root.zig"),
@@ -682,6 +685,14 @@ fn addLibwebp(b: *std.Build, artifact: *std.Build.Step.Compile) void {
             "vendor/libwebp/src/utils/rescaler_utils.c",
             "vendor/libwebp/src/utils/thread_utils.c",
             "vendor/libwebp/src/utils/utils.c",
+            // demux: VP8X / ICCP チャンク走査 (静止画のみ bridge で使用)
+            "vendor/libwebp/src/demux/demux.c",
+            "vendor/libwebp/src/demux/anim_decode.c",
+            // mux: テスト用 ICC 付き WebP の組み立て
+            "vendor/libwebp/src/mux/anim_encode.c",
+            "vendor/libwebp/src/mux/muxedit.c",
+            "vendor/libwebp/src/mux/muxinternal.c",
+            "vendor/libwebp/src/mux/muxread.c",
         },
         .flags = &.{"-std=c11"},
     });

@@ -21,7 +21,7 @@ pub const PixelFormat = enum {
 
 /// デコード済み画像バッファ。
 /// `deinit()` で allocator に返却する。zero-copy を守るため raw data を直接保持。
-/// `icc` が非 null のときは PNG iCCP 等の生バイト列（パススルー用）。リサイズ時は運び屋としてコピーを維持する。
+/// `icc` が非 null のときは PNG iCCP / JPEG APP2 ICC 等の生バイト列（パススルー用）。リサイズ時は運び屋としてコピーを維持する。
 pub const ImageBuffer = struct {
     width: u32,
     height: u32,
@@ -140,9 +140,13 @@ extern fn pict_jpeg_decode(
     out_width: *c_uint,
     out_height: *c_uint,
     out_channels: *c_uint,
+    out_icc: *[*c]u8,
+    out_icc_len: *c_uint,
 ) c_int;
 
 extern fn pict_jpeg_free(data: [*]u8) void;
+
+extern fn pict_jpeg_icc_free(data: [*c]u8) void;
 
 /// テスト専用エンコーダ。libjpeg-turbo の jpeg_mem_dest を使う。
 /// 返り値バッファは pict_jpeg_free() で解放すること。
@@ -151,6 +155,18 @@ extern fn pict_jpeg_encode(
     width: c_uint,
     height: c_uint,
     quality: c_int,
+    out_jpeg: *?[*]u8,
+    out_len: *c_ulong,
+) c_int;
+
+/// テスト用: RGB JPEG に ICC(APP2) を埋め込む。`icc_len` は 1 以上。
+extern fn pict_jpeg_encode_with_icc(
+    rgb: [*]const u8,
+    width: c_uint,
+    height: c_uint,
+    quality: c_int,
+    icc: [*]const u8,
+    icc_len: c_uint,
     out_jpeg: *?[*]u8,
     out_len: *c_ulong,
 ) c_int;
@@ -186,9 +202,29 @@ extern fn pict_webp_decode(
     out_width: *c_uint,
     out_height: *c_uint,
     out_channels: *c_uint,
+    out_icc: *[*c]u8,
+    out_icc_len: *c_uint,
 ) c_int;
 
 extern fn pict_webp_decode_free(data: [*]u8) void;
+
+extern fn pict_webp_icc_free(data: [*c]u8) void;
+
+extern fn pict_webp_free(data: [*]u8) void;
+
+/// テスト用: WebP に ICCP を埋め込む（mux）。`icc_len` は 1 以上。
+extern fn pict_webp_encode_with_icc(
+    pixels: [*]const u8,
+    width: c_int,
+    height: c_int,
+    channels: c_int,
+    quality: f32,
+    lossless: c_int,
+    icc: [*]const u8,
+    icc_len: c_uint,
+    out_data: *?[*]u8,
+    out_len: *usize,
+) c_int;
 
 /// テスト専用エンコーダ。libpng の in-memory write を使う。
 /// 返り値バッファは pict_png_free() で解放すること。
@@ -225,6 +261,8 @@ pub const JpegDecoder = struct {
         var out_width: c_uint = 0;
         var out_height: c_uint = 0;
         var out_channels: c_uint = 0;
+        var c_icc: [*c]u8 = null;
+        var c_icc_len: c_uint = 0;
 
         const result = pict_jpeg_decode(
             data.ptr,
@@ -233,6 +271,8 @@ pub const JpegDecoder = struct {
             &out_width,
             &out_height,
             &out_channels,
+            &c_icc,
+            &c_icc_len,
         );
 
         switch (result) {
@@ -252,13 +292,21 @@ pub const JpegDecoder = struct {
         errdefer allocator.free(zig_buf);
         @memcpy(zig_buf, c_slice);
 
+        var icc_z: ?[]u8 = null;
+        errdefer if (icc_z) |s| allocator.free(s);
+        if (c_icc != null and c_icc_len > 0) {
+            const icc_len: usize = @intCast(c_icc_len);
+            icc_z = try allocator.dupe(u8, c_icc[0..icc_len]);
+            pict_jpeg_icc_free(c_icc);
+        }
+
         return ImageBuffer{
             .width = @intCast(out_width),
             .height = @intCast(out_height),
             .channels = @intCast(out_channels),
             .format = .rgb8,
             .data = zig_buf,
-            .icc = null,
+            .icc = icc_z,
             .allocator = allocator,
         };
     }
@@ -399,6 +447,8 @@ pub const WebpDecoder = struct {
         var out_width: c_uint = 0;
         var out_height: c_uint = 0;
         var out_channels: c_uint = 0;
+        var c_icc: [*c]u8 = null;
+        var c_icc_len: c_uint = 0;
 
         const result = pict_webp_decode(
             data.ptr,
@@ -407,6 +457,8 @@ pub const WebpDecoder = struct {
             &out_width,
             &out_height,
             &out_channels,
+            &c_icc,
+            &c_icc_len,
         );
 
         switch (result) {
@@ -426,6 +478,14 @@ pub const WebpDecoder = struct {
         errdefer allocator.free(zig_buf);
         @memcpy(zig_buf, c_slice);
 
+        var icc_z: ?[]u8 = null;
+        errdefer if (icc_z) |s| allocator.free(s);
+        if (c_icc != null and c_icc_len > 0) {
+            const icc_len: usize = @intCast(c_icc_len);
+            icc_z = try allocator.dupe(u8, c_icc[0..icc_len]);
+            pict_webp_icc_free(c_icc);
+        }
+
         const fmt: PixelFormat = if (ch == 4) .rgba8 else .rgb8;
         return ImageBuffer{
             .width = @intCast(out_width),
@@ -433,7 +493,7 @@ pub const WebpDecoder = struct {
             .channels = @intCast(out_channels),
             .format = fmt,
             .data = zig_buf,
-            .icc = null,
+            .icc = icc_z,
             .allocator = allocator,
         };
     }
@@ -585,6 +645,42 @@ test "JpegDecoder: corrupt data returns CorruptData" {
     try std.testing.expectError(DecodeError.CorruptData, result);
 }
 
+// APP2 ICC 付き JPEG をエンコードしてデコードし、ImageBuffer.icc が復元されること。
+test "JpegDecoder: APP2 ICC profile extracted" {
+    const W = 4;
+    const H = 4;
+    var rgb = [_]u8{128} ** (W * H * 3);
+    var dummy_icc: [256]u8 = undefined;
+    for (&dummy_icc, 0..) |*b, i| b.* = @intCast(i & 0xff);
+
+    var jpeg_ptr: ?[*]u8 = null;
+    var jpeg_len: c_ulong = 0;
+    const enc = pict_jpeg_encode_with_icc(
+        @as([*]const u8, &rgb),
+        W,
+        H,
+        80,
+        @as([*]const u8, &dummy_icc),
+        @intCast(dummy_icc.len),
+        &jpeg_ptr,
+        &jpeg_len,
+    );
+    try std.testing.expectEqual(@as(c_int, 0), enc);
+    defer if (jpeg_ptr) |p| pict_jpeg_free(p);
+
+    const jpeg_slice = jpeg_ptr.?[0..jpeg_len];
+
+    var dec = jpegDecoder();
+    defer dec.deinit();
+
+    var buf = try dec.decode(jpeg_slice, std.testing.allocator);
+    defer buf.deinit();
+
+    try std.testing.expect(buf.icc != null);
+    try std.testing.expectEqual(dummy_icc.len, buf.icc.?.len);
+    try std.testing.expectEqualSlices(u8, &dummy_icc, buf.icc.?);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // PNG デコードパスのテスト (libpng が必要)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -711,4 +807,48 @@ test "WebpDecoder: corrupt RIFF returns CorruptData" {
 
     const result = dec.decode(&hdr, std.testing.allocator);
     try std.testing.expectError(DecodeError.CorruptData, result);
+}
+
+test "WebpDecoder: ICCP profile extracted" {
+    const W = 4;
+    const H = 4;
+    var rgba = [_]u8{0} ** (W * H * 4);
+    for (0..W * H) |i| {
+        const o = i * 4;
+        rgba[o + 0] = 100;
+        rgba[o + 1] = 150;
+        rgba[o + 2] = 200;
+        rgba[o + 3] = 255;
+    }
+    var dummy_icc: [128]u8 = undefined;
+    for (&dummy_icc, 0..) |*b, i| b.* = @intCast(i & 0xff);
+
+    var webp_ptr: ?[*]u8 = null;
+    var webp_len: usize = 0;
+    const enc = pict_webp_encode_with_icc(
+        @as([*]const u8, &rgba),
+        W,
+        H,
+        4,
+        80.0,
+        1,
+        @as([*]const u8, &dummy_icc),
+        @intCast(dummy_icc.len),
+        &webp_ptr,
+        &webp_len,
+    );
+    try std.testing.expectEqual(@as(c_int, 0), enc);
+    defer if (webp_ptr) |p| pict_webp_free(p);
+
+    const webp_slice = webp_ptr.?[0..webp_len];
+
+    var dec = webpDecoder();
+    defer dec.deinit();
+
+    var buf = try dec.decode(webp_slice, std.testing.allocator);
+    defer buf.deinit();
+
+    try std.testing.expect(buf.icc != null);
+    try std.testing.expectEqual(dummy_icc.len, buf.icc.?.len);
+    try std.testing.expectEqualSlices(u8, &dummy_icc, buf.icc.?);
 }

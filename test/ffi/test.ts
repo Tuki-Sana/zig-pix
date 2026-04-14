@@ -11,6 +11,8 @@
  * Or:  bash test/ffi/run.sh  (runs zig build lib first)
  */
 import { dlopen, suffix, FFIType, ptr, toArrayBuffer } from "bun:ffi";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 const LIB_PATH = `${import.meta.dir}/../../zig-out/lib/libpict.${suffix}`;
 
@@ -24,6 +26,19 @@ const lib = dlopen(LIB_PATH, {
       FFIType.ptr, // out_h: ?*u32
       FFIType.ptr, // out_ch: ?*u8
       FFIType.ptr, // out_len: ?*usize
+    ],
+    returns: FFIType.ptr,
+  },
+  pict_decode_v3: {
+    args: [
+      FFIType.ptr,
+      FFIType.u64,
+      FFIType.ptr,
+      FFIType.ptr,
+      FFIType.ptr,
+      FFIType.ptr,
+      FFIType.ptr,
+      FFIType.ptr,
     ],
     returns: FFIType.ptr,
   },
@@ -41,16 +56,17 @@ const lib = dlopen(LIB_PATH, {
     ],
     returns: FFIType.ptr,
   },
-  // pict_encode_webp(pixels, width, height, channels, quality, lossless, out_len) -> ?[*]u8
-  pict_encode_webp: {
+  pict_encode_webp_v2: {
     args: [
-      FFIType.ptr,  // pixels: [*c]const u8
-      FFIType.u32,  // width: u32
-      FFIType.u32,  // height: u32
-      FFIType.u8,   // channels: u8
-      FFIType.f32,  // quality: f32
-      FFIType.bool, // lossless: bool
-      FFIType.ptr,  // out_len: ?*usize
+      FFIType.ptr,
+      FFIType.u32,
+      FFIType.u32,
+      FFIType.u8,
+      FFIType.f32,
+      FFIType.bool,
+      FFIType.ptr,
+      FFIType.u64,
+      FFIType.ptr,
     ],
     returns: FFIType.ptr,
   },
@@ -136,6 +152,53 @@ try {
     }
   }
 
+  // ── Case A2: pict_decode_v3 + iCCP PNG ─────────────────────────────────
+  {
+    const parisPath = join(import.meta.dir, "../../vendor/libavif/tests/data/paris_icc_exif_xmp.png");
+    let paris: Uint8Array;
+    try {
+      paris = readFileSync(parisPath);
+    } catch {
+      fail("A2: pict_decode_v3", `missing fixture ${parisPath}`);
+      paris = new Uint8Array(0);
+    }
+    if (paris.byteLength > 0) {
+      const outW   = new Uint32Array(1);
+      const outH   = new Uint32Array(1);
+      const outCh  = new Uint8Array(1);
+      const outLen = new BigUint64Array(1);
+      const iccPtrSlot = new BigUint64Array(1);
+      const iccLenBuf  = new BigUint64Array(1);
+
+      const result = symbols.pict_decode_v3(
+        ptr(paris),
+        BigInt(paris.byteLength),
+        ptr(outW),
+        ptr(outH),
+        ptr(outCh),
+        ptr(outLen),
+        ptr(iccPtrSlot),
+        ptr(iccLenBuf),
+      );
+
+      if (result === null) {
+        fail("A2: pict_decode_v3", "returned null");
+      } else if (iccPtrSlot[0] === 0n || iccLenBuf[0] === 0n) {
+        fail("A2: pict_decode_v3", "expected non-null ICC");
+        symbols.pict_free_buffer(result, outLen[0]);
+      } else {
+        if (iccLenBuf[0] < 128n) {
+          fail("A2: pict_decode_v3", `icc_len ${iccLenBuf[0]} too small`);
+        } else {
+          pass(`A2: pict_decode_v3 — ICC len=${iccLenBuf[0]}`);
+        }
+        // Bun FFI はポインタを number で扱う。BigUint64Array のアドレス値を number に落とす。
+        symbols.pict_free_buffer(Number(iccPtrSlot[0]), iccLenBuf[0]);
+        symbols.pict_free_buffer(result, outLen[0]);
+      }
+    }
+  }
+
   // ── Case B: pict_resize ────────────────────────────────────────────────
   // Resize a 4×4 RGBA buffer to 2×2; verify out_len == 2*2*4.
   {
@@ -170,11 +233,13 @@ try {
     const pixels = new Uint8Array(4 * 4 * 4).fill(128);
     const outLen = new BigUint64Array(1);
 
-    const result = symbols.pict_encode_webp(
+    const result = symbols.pict_encode_webp_v2(
       ptr(pixels),
       4, 4, 4,  // width, height, channels
       80.0,     // quality
       false,    // lossless
+      null,
+      0n,
       ptr(outLen),
     );
 
@@ -202,10 +267,12 @@ try {
   {
     const outLen = new BigUint64Array(1);
 
-    const result = symbols.pict_encode_webp(
+    const result = symbols.pict_encode_webp_v2(
       null,         // null input pointer
       4, 4, 4,
       80.0, false,
+      null,
+      0n,
       ptr(outLen),
     );
 

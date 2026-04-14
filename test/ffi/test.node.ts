@@ -10,6 +10,7 @@
  * Or:  bash test/ffi/run.node.sh  (runs zig build lib first)
  */
 import koffi from "koffi";
+import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { platform } from "os";
@@ -27,14 +28,19 @@ const pict_decode_v2 = lib.func(
   "uint8 *pict_decode_v2(const uint8 *data, uint64 len, uint32 *out_w, uint32 *out_h, uint8 *out_ch, uint64 *out_len)"
 );
 
+// pict_decode_v3(..., out_icc, out_icc_len) -> uint8 * | null
+const pict_decode_v3 = lib.func(
+  "uint8 *pict_decode_v3(const uint8 *data, uint64 len, uint32 *out_w, uint32 *out_h, uint8 *out_ch, uint64 *out_len, _Out_ uint8 **out_icc, uint64 *out_icc_len)"
+);
+
 // pict_resize(src, src_w, src_h, channels, dst_w, dst_h, n_threads, out_len) -> uint8 * | null
 const pict_resize = lib.func(
   "uint8 *pict_resize(const uint8 *src, uint32 src_w, uint32 src_h, uint8 channels, uint32 dst_w, uint32 dst_h, uint32 n_threads, uint64 *out_len)"
 );
 
-// pict_encode_webp(pixels, width, height, channels, quality, lossless, out_len) -> uint8 * | null
-const pict_encode_webp = lib.func(
-  "uint8 *pict_encode_webp(const uint8 *pixels, uint32 width, uint32 height, uint8 channels, float quality, bool lossless, uint64 *out_len)"
+// pict_encode_webp_v2(..., icc, icc_len, out_len) -> uint8 * | null
+const pict_encode_webp_v2 = lib.func(
+  "uint8 *pict_encode_webp_v2(const uint8 *pixels, uint32 width, uint32 height, uint8 channels, float quality, bool lossless, uint8 *icc, uint64 icc_len, uint64 *out_len)"
 );
 
 // pict_encode_avif(pixels, width, height, channels, quality, speed, out_len) -> uint8 * | null
@@ -104,6 +110,52 @@ try {
     }
   }
 
+  // ── Case A2: pict_decode_v3 + iCCP PNG ─────────────────────────────────
+  {
+    const parisPath = join(__dirname, "../../vendor/libavif/tests/data/paris_icc_exif_xmp.png");
+    let paris: Buffer;
+    try {
+      paris = readFileSync(parisPath);
+    } catch {
+      fail("A2: pict_decode_v3", `missing fixture ${parisPath}`);
+      paris = Buffer.alloc(0);
+    }
+    if (paris.length > 0) {
+      const outW   = new Uint32Array(1);
+      const outH   = new Uint32Array(1);
+      const outCh  = new Uint8Array(1);
+      const outLen = new BigUint64Array(1);
+      const iccSlot: unknown[] = [null];
+      const iccLen = new BigUint64Array(1);
+
+      const result = pict_decode_v3(
+        paris,
+        BigInt(paris.byteLength),
+        outW,
+        outH,
+        outCh,
+        outLen,
+        iccSlot,
+        iccLen,
+      );
+
+      if (result === null) {
+        fail("A2: pict_decode_v3", "returned null");
+      } else if (iccSlot[0] == null || iccLen[0] === 0n) {
+        fail("A2: pict_decode_v3", "expected non-null ICC");
+        pict_free_buffer(result, outLen[0]);
+      } else {
+        if (iccLen[0] < 128n) {
+          fail("A2: pict_decode_v3", `icc_len ${iccLen[0]} too small`);
+        } else {
+          pass(`A2: pict_decode_v3 — ICC len=${iccLen[0]}`);
+        }
+        pict_free_buffer(iccSlot[0] as never, iccLen[0]);
+        pict_free_buffer(result, outLen[0]);
+      }
+    }
+  }
+
   // ── Case B: pict_resize ────────────────────────────────────────────────
   // Resize a 4×4 RGBA buffer to 2×2; verify out_len == 2*2*4.
   {
@@ -137,11 +189,13 @@ try {
     const pixels = Buffer.alloc(4 * 4 * 4, 128);
     const outLen = new BigUint64Array(1);
 
-    const result = pict_encode_webp(
+    const result = pict_encode_webp_v2(
       pixels,
       4, 4, 4, // width, height, channels
       80.0,    // quality
       false,   // lossless
+      null,
+      0n,
       outLen,
     );
 
@@ -169,10 +223,12 @@ try {
   {
     const outLen = new BigUint64Array(1);
 
-    const result = pict_encode_webp(
+    const result = pict_encode_webp_v2(
       null,        // null input pointer
       4, 4, 4,
       80.0, false,
+      null,
+      0n,
       outLen,
     );
 

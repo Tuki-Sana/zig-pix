@@ -104,6 +104,20 @@ extern fn pict_webp_encode(
     out_len: *usize,
 ) c_int;
 
+/// `image.icc` を WebP ICCP に載せる経路（mux）。`pict_webp_free` で解放。
+extern fn pict_webp_encode_with_icc(
+    pixels: [*]const u8,
+    width: c_int,
+    height: c_int,
+    channels: c_int,
+    quality: f32,
+    lossless: c_int,
+    icc: [*]const u8,
+    icc_len: c_uint,
+    out_data: *[*]u8,
+    out_len: *usize,
+) c_int;
+
 extern fn pict_webp_free(data: [*]u8) void;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -114,6 +128,7 @@ extern fn pict_webp_free(data: [*]u8) void;
 ///
 /// - 入力は rgb8 (channels=3) または rgba8 (channels=4) を受け付ける。
 /// - options.webp.lossless = true でロスレス出力。
+/// - `image.icc` があれば WebP の ICCP チャンクに埋め込む（無ければ従来どおり裸ビットストリーム相当の RIFF）。
 /// - 出力バイト列は allocator で管理された EncodedBuffer に格納される。
 pub const WebPEncoder = struct {
     pub const vtable = Encoder.VTable{
@@ -136,16 +151,34 @@ pub const WebPEncoder = struct {
         var out_data: [*]u8 = undefined;
         var out_len: usize = 0;
 
-        const result = pict_webp_encode(
-            image.data.ptr,
-            @intCast(image.width),
-            @intCast(image.height),
-            @intCast(image.channels),
-            opts.quality,
-            if (opts.lossless) @as(c_int, 1) else 0,
-            &out_data,
-            &out_len,
-        );
+        const result: c_int = if (image.icc) |icc| blk: {
+            if (icc.len == 0 or icc.len > @as(usize, @intCast(std.math.maxInt(c_uint)))) {
+                return EncodeError.InvalidInput;
+            }
+            break :blk pict_webp_encode_with_icc(
+                image.data.ptr,
+                @intCast(image.width),
+                @intCast(image.height),
+                @intCast(image.channels),
+                opts.quality,
+                if (opts.lossless) @as(c_int, 1) else 0,
+                icc.ptr,
+                @intCast(icc.len),
+                &out_data,
+                &out_len,
+            );
+        } else blk: {
+            break :blk pict_webp_encode(
+                image.data.ptr,
+                @intCast(image.width),
+                @intCast(image.height),
+                @intCast(image.channels),
+                opts.quality,
+                if (opts.lossless) @as(c_int, 1) else 0,
+                &out_data,
+                &out_len,
+            );
+        };
 
         if (result != 0) return EncodeError.EncodingFailed;
 
@@ -443,4 +476,36 @@ test "WebP encode then WebpDecoder: RGBA lossless roundtrip" {
     try std.testing.expectEqual(@as(u32, H), dec_buf.height);
     try std.testing.expectEqual(@as(u8, 4), dec_buf.channels);
     try std.testing.expectEqual(decode.PixelFormat.rgba8, dec_buf.format);
+}
+
+test "WebPEncoder: ImageBuffer.icc embedded as WebP ICCP" {
+    const W = 4;
+    const H = 4;
+    var pixels = [_]u8{50} ** (W * H * 3);
+    var dummy_icc: [128]u8 = undefined;
+    for (&dummy_icc, 0..) |*b, i| b.* = @intCast(i & 0xff);
+
+    const img = decode.ImageBuffer{
+        .width = W,
+        .height = H,
+        .channels = 3,
+        .format = .rgb8,
+        .data = &pixels,
+        .icc = &dummy_icc,
+        .allocator = std.testing.allocator,
+    };
+
+    var enc = webpEncoder();
+    defer enc.deinit();
+    var encoded = try enc.encode(img, .{ .webp = .{ .quality = 85.0 } }, std.testing.allocator);
+    defer encoded.deinit();
+
+    var wdec = decode.webpDecoder();
+    defer wdec.deinit();
+    var dec_buf = try wdec.decode(encoded.data, std.testing.allocator);
+    defer dec_buf.deinit();
+
+    try std.testing.expect(dec_buf.icc != null);
+    try std.testing.expectEqual(dummy_icc.len, dec_buf.icc.?.len);
+    try std.testing.expectEqualSlices(u8, &dummy_icc, dec_buf.icc.?);
 }
