@@ -1,3 +1,4 @@
+# ネイティブ libpict + FFI/E2E。WASM（zigpix-wasm）は build-wasm.yml（手動）を参照。
 name: Build native binaries
 
 on:

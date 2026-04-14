@@ -209,26 +209,30 @@ CI の **build-native** でも `npm run build` の直後に上記と同等の ov
 
 ルートの **`zigpix`**（ネイティブ FFI）とは **別パッケージ** [`zigpix-wasm`](https://www.npmjs.com/package/zigpix-wasm)。Emscripten でビルドした **ブラウザ用 AVIF エンコード**のみ（小〜中画像向け。`decode` / リサイズ / WebP は含まない）。
 
-### バージョンをネイティブと揃える
+### バージョン方針（ネイティブと独立）
 
-**意図**: `zigpix@x.y.z` を出したときは、同じ **`x.y.z`** を `wasm/package.json` の `version` にも書き、`zigpix-wasm@x.y.z` を npm に公開する（運用で同期。コード依存はないが、利用者がバージョンを一列に並べやすい）。
+- **`wasm/package.json` の `version` が `zigpix-wasm` のセマバ**であり、**`zigpix` と同期させる必要はない**（WASM だけ直す／ネイティブだけ直す、を別リリースにできる）。
+- 見た目を揃えたいリリースでは、運用で同じ番号にしてもよい（必須ではない）。
 
-### 公開前のビルド（必須）
+### 公開前のビルド（手元）
 
-`wasm/dist/` は `.gitignore` 対象のため、**publish 前に手元で生成**する。前提: [Emscripten emsdk](https://emscripten.org/docs/getting_started/downloads.html) が有効なシェル（`wasm/README.md` の手順）。
+`wasm/dist/` は `.gitignore` 対象のため、**publish 前に生成**する。前提: [Emscripten emsdk](https://emscripten.org/docs/getting_started/downloads.html) が有効なシェル（`wasm/README.md`）。
 
 ```bash
 cd wasm
 npm run build:all    # baseline + SIMD。または npm run build のみ
-npm test             # Node smoke（任意だが推奨）
+npm test             # Node smoke（推奨）
 npm publish --access public
 ```
 
+### CI（手動のみ・`build-native` とは別ワークフロー）
+
+ワークフロー **Build WASM (zigpix-wasm)**（`.github/workflows/build-wasm.yml`）を **手動実行**（`workflow_dispatch`）すると、Ubuntu 上で Emscripten をセットアップし `wasm/dist` をビルドし、**artifact `zigpix-wasm-dist`** としてアップロードする（初回・キャッシュミス時は **30〜90 分程度**かかることがある）。
+
+- **`build-native` には混ぜない**（ネイティブ CI の時間・失敗要因を増やさない）。
+- **npm publish は自動では行わない**（`NPM_TOKEN` を載せるまで）。成果物をダウンロードして手元で `wasm/` から `npm publish` するか、将来ジョブを足す。
+
 ### Cloudflare Pages での使い方（要点）
 
-- **静的サイト**としてブラウザで動かす想定。`import { createAvifEncoder } from 'zigpix-wasm'` のように ESM で読み、bundler が `.wasm` をアセットとして吐き出す設定（Vite / esbuild 等の `assetsInclude` や既定の wasm 取り扱い）に合わせる。
+- **静的サイト**としてブラウザで動かす想定。`import { createAvifEncoder } from 'zigpix-wasm'` のように ESM で読み、bundler が `.wasm` をアセットとして吐き出す設定に合わせる。
 - **Workers 上での WASM AVIF エンコード**は CPU 時間・サイズ制約が厳しく、チェックリストどおり **非推奨**（大画像はサーバの `zigpix` ネイティブへ）。
-
-### CI での自動ビルド（未実装）
-
-現状、**GitHub Actions では Emscripten チェーンを回していない**。将来、artifact に `wasm/dist` を載せてから `npm publish` するジョブを足すと、ローカル emsdk なしでリリースできる。

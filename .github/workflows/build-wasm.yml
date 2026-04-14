@@ -1,0 +1,41 @@
+# zigpix-wasm（ブラウザ向け AVIF）— Emscripten ビルドのみ。
+# build-native とは分離。push では回さず、必要なときだけ手動実行する。
+name: Build WASM (zigpix-wasm)
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: wasm-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  wasm:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build python3
+
+      - name: Setup Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 3.1.51
+          actions-cache-folder: emsdk-cache
+
+      - name: Build WASM (baseline + SIMD)
+        run: cd wasm && npm run build:all
+
+      - name: Node smoke tests
+        run: cd wasm && npm test
+
+      - name: Upload wasm/dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: zigpix-wasm-dist
+          path: wasm/dist/
+          retention-days: 14
