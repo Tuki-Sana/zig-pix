@@ -227,7 +227,7 @@ npm publish --access public
 
 ### CI（手動のみ・`build-native` とは別ワークフロー）
 
-ワークフロー **Build WASM (zigpix-wasm)**（`.github/workflows/build-wasm.yml`）を **手動実行**（`workflow_dispatch`）すると、Ubuntu 上で Emscripten をセットアップし `wasm/dist` をビルドし、**artifact `zigpix-wasm-dist`** としてアップロードする（初回・キャッシュミス時は **30〜90 分程度**かかることがある）。
+ワークフロー **Build WASM (zigpix-wasm)**（`.github/workflows/build-wasm.yml`）を **手動実行**（`workflow_dispatch`）すると、Ubuntu 上で Emscripten をセットアップし `wasm/dist` をビルドし、**artifact `zigpix-wasm-dist`** としてアップロードする。**所要時間は libaom / libavif のフルコンパイルが支配的**で、初回・クリーン環境では **30〜90 分程度**かかることもある。一方、ランナーやネットワーク次第では **数分〜十数分**で完了することがある（目安であり保証ではない）。
 
 - **`build-native` には混ぜない**（ネイティブ CI の時間・失敗要因を増やさない）。
 - **npm publish は自動では行わない**（`NPM_TOKEN` を載せるまで）。成果物をダウンロードして手元で `wasm/` から `npm publish` するか、将来ジョブを足す。

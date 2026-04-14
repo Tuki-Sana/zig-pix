@@ -429,6 +429,7 @@ zig llvm-nm -D zig-out/linux-x86_64/libpict.so | grep pict_encode_avif  # シン
 - [x] CI: `zig-out` の `libpict` を `node_modules/zigpix-*` に上書きしてから FFI/E2E（optional 未公開時は `mkdir` + `npm/zigpix-*/package.json` を同梱してから `cp`）
 - [x] `docs/operations.md` §8 — npm パッチ公開順（optional 先 → ルート）とローカル overlay 手順
 - [x] `zigpix` / `zigpix-darwin-arm64` / `zigpix-linux-x64` を **0.1.3** に揃えて npm publish（実施はメンテナ）
+- [x] [`zigpix-wasm@0.1.3`](https://www.npmjs.com/package/zigpix-wasm) を npm に公開（CI **Build WASM** 成功 run の artifact → `scripts/fetch-wasm-artifact.sh` → `wasm` で `npm test` / `npm publish`）
 
 **Phase 8C 完全クローズ** — Node / Bun / Deno 三ランタイム対応完了
 
@@ -480,6 +481,7 @@ zig llvm-nm -D zig-out/linux-x86_64/libpict.so | grep pict_encode_avif  # シン
 - [x] libavif WASM ビルド（`AOM_INCLUDE_DIR`/`AOM_LIBRARY` 直接渡し、`SKIP_INSTALL_RULES=ON`）
 - [x] `wasm/src/avif_wasm.c` — WASM ブリッジ（`avif_encode` / `avif_get_out_size` / `avif_free_output` / `avif_version`）
 - [x] `scripts/build-wasm.sh` — 3ステップビルドスクリプト（libaom → libavif → emcc link、browser + node variant）
+- [x] `.github/workflows/build-wasm.yml` — Ubuntu + Emscripten + `perl` で CI ビルド（`pipefail` / CMake ログまわりの修正で安定化）。成果物は npm パッケージ [`zigpix-wasm`](https://www.npmjs.com/package/zigpix-wasm)（**0.1.3** 時点で公開済み）
 - [x] `wasm/js/index.ts` — TypeScript ラッパー（`createAvifEncoder` / `AvifEncoder` API）
 - [x] `wasm/dist/avif.js` + `avif.wasm` 生成（raw 3.4MB / gzip 1.1MB ← 3MB 以下 ✅）
 - [x] Node.js smoke test（`wasm/test.node.mjs`、12/12 PASS）
