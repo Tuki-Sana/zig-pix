@@ -438,7 +438,7 @@ zig llvm-nm -D zig-out/linux-x86_64/libpict.so | grep pict_encode_avif  # シン
 - [x] `zigpix` / `zigpix-darwin-arm64` / `zigpix-linux-x64` を **0.1.3** に揃えて npm publish（実施はメンテナ）
 - [x] [`zigpix-wasm@0.1.3`](https://www.npmjs.com/package/zigpix-wasm) を npm に公開（CI **Build WASM** 成功 run の artifact → `scripts/fetch-wasm-artifact.sh` → `wasm` で `npm test` / `npm publish`）
 
-#### 0.1.4 パッチ（ICC デコード→WebP 埋め込み + ドキュメント整備）✅（publish はメンテナ）
+#### 0.1.4 パッチ（ICC デコード→WebP 埋め込み + ドキュメント整備）✅
 
 - [x] `pict_decode_v3` / `decode()` で埋め込み ICC を `ImageBuffer.icc` に返す
 - [x] `pict_encode_webp_v2` / `encodeWebP()` で ICC を WebP に埋め込み、`resize()` で `icc` を引き継ぎ
@@ -446,7 +446,7 @@ zig llvm-nm -D zig-out/linux-x86_64/libpict.so | grep pict_encode_avif  # シン
 - [x] ルート **`CHANGELOG.md`** 追加（0.1.4 エントリ・`package.json` `files` へ収録）
 - [x] **`docs/release.md`** — push 後〜npm までの手順をチェックリスト化（`operations.md` §8/9 は概要＋参照に整理）
 - [x] **`wasm/CHANGELOG.md`** 追加（0.1.4・`wasm/package.json` の `files` に収録）
-- [ ] **0.1.4 一括 publish（メンテナ）**: **`docs/release.md`** の Phase 1 → Phase 2 に従い、(1) optional 二つ → ルート `zigpix`、(2) 必要なら `zigpix-wasm`（`wasm/dist` 生成済みのうえ `npm test` / `npm publish`）。補足は `docs/operations.md` §8 / §9
+- [x] **0.1.4 npm publish**: **`docs/release.md`** の Phase 1 →（必要なら）Phase 2 に従い実施済み（optional 二つ → ルート `zigpix`、`zigpix-wasm` は方針に応じて）。補足は `docs/operations.md` §8 / §9
 
 **Phase 8C 完全クローズ** — Node / Bun / Deno 三ランタイム対応完了
 

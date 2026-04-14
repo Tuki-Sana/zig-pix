@@ -5,11 +5,7 @@
 
 ## [Unreleased]
 
-### 変更
-
-- **メンテナ向け**: `docs/release.md` を追加し、`main` push 後〜npm 公開までをチェックリスト化。`docs/operations.md` の §8 / §9 は概要と参照に整理。
-- **`docs/README.md`**: 各ドキュメントの役割・読む順を追加。任意のメモ用に **`docs/LOCAL.md`** を `.gitignore`。
-- **`docs/release.md`**: `export RUN_ID` と `gh run download` を **同一シェルで実行する理由**を追記。
+（次パッチ以降の差分をここに書く）
 
 ## [0.1.4] - 2026-04-14
 
@@ -27,6 +23,9 @@
 
 - **README**: `ZIGPIX_LIB`、FFI 検証には `zig build lib` が必要であること、`zig build wasm` と `zigpix-wasm` の役割差を追記。
 - **build.zig**: WASI ターゲットがネイティブの C デコード・ICC・WebP フルパスと揃わない旨をコメントで明示。
+- **`docs/release.md`**: `main` push 後から npm 公開までのチェックリスト。`export RUN_ID` と `gh run download` は同一シェルで実行する旨を追記。
+- **`docs/README.md`**: 各ドキュメントの役割・読む順。任意のメモ用に `docs/LOCAL.md` を `.gitignore`。
+- **`docs/operations.md`**: §8 / §9 を概要と `release.md` 参照に整理。
 
 ### 利用者向けメモ
 
