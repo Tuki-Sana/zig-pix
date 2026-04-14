@@ -5,7 +5,7 @@
  * AV1 encoder backend (Homebrew bottle default).
  *
  * Exported symbols:
- *   pict_avif_encode — encode raw RGBA8 → AVIF bytes
+ *   pict_avif_encode — encode raw RGB8/RGBA8 → AVIF bytes (optional embedded ICC)
  *   pict_avif_free   — free output allocated by pict_avif_encode
  */
 
@@ -37,6 +37,8 @@ int pict_avif_encode(
     int            channels,
     int            quality,
     int            speed,
+    const uint8_t *icc,
+    size_t         icc_len,
     uint8_t      **out_data,
     size_t        *out_size)
 {
@@ -45,6 +47,14 @@ int pict_avif_encode(
 
     avifImage *image = avifImageCreate(width, height, 8, AVIF_PIXEL_FORMAT_YUV444);
     if (!image) return -1;
+
+    if (icc != NULL && icc_len > 0) {
+        avifResult icc_res = avifImageSetProfileICC(image, icc, icc_len);
+        if (icc_res != AVIF_RESULT_OK) {
+            avifImageDestroy(image);
+            return -1;
+        }
+    }
 
     avifRGBImage rgb;
     avifRGBImageSetDefaults(&rgb, image);

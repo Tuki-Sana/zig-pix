@@ -117,6 +117,11 @@ export fn pict_decode_v2(
     if (out_len) |ol| ol.* = buf.data.len;
     const ptr = buf.data.ptr;
     buf.data = &[_]u8{}; // deinit が free しないよう長さを 0 に
+    // FFI はまだ ICC を返さない: ピクセル所有権を手放したあと Zig 側バッファのみ解放
+    if (buf.icc) |icc| {
+        buf.allocator.free(icc);
+        buf.icc = null;
+    }
     return ptr;
 }
 
@@ -176,6 +181,7 @@ export fn pict_encode_webp(
         .channels  = channels,
         .format    = if (channels == 4) .rgba8 else .rgb8,
         .data      = @constCast(pixels[0..pixel_size]),
+        .icc       = null,
         .allocator = ffi_alloc,
     };
 
@@ -218,6 +224,7 @@ export fn pict_encode_avif(
         .channels  = channels,
         .format    = if (channels == 4) .rgba8 else .rgb8,
         .data      = @constCast(pixels[0..pixel_size]),
+        .icc       = null,
         .allocator = ffi_alloc,
     };
 

@@ -2,9 +2,10 @@
  * png_decode.c — libpng C bridge for pict-zig-engine
  *
  * Exported symbols:
- *   pict_png_decode   — decode PNG bytes → raw RGB/RGBA pixels
- *   pict_png_free     — free buffers allocated by this module
- *   pict_png_encode   — encode raw RGB/RGBA → PNG bytes (used by tests)
+ *   pict_png_decode     — decode PNG bytes → raw RGB/RGBA pixels + optional ICC (iCCP)
+ *   pict_png_free       — free pixel buffer from pict_png_decode
+ *   pict_png_icc_free   — free ICC buffer from pict_png_decode (malloc)
+ *   pict_png_encode     — encode raw RGB/RGBA → PNG bytes (used by tests)
  */
 
 #include <stdio.h>   /* libpng may need FILE */
@@ -12,6 +13,8 @@
 #include <string.h>
 #include <setjmp.h>
 #include <png.h>
+
+void pict_png_icc_free(unsigned char *icc);
 
 /* ── In-memory read state ───────────────────────────────────────────────── */
 
@@ -70,6 +73,11 @@ static void png_mem_flush(png_structp png_ptr) { (void)png_ptr; }
  * pict_png_free().  Pixels are tightly-packed, row-major:
  *   byte offset = row * width * channels + col * channels
  *
+ * If out_icc / out_icc_len are non-NULL and the PNG has an iCCP chunk,
+ * *out_icc is set to a malloc()'d copy of the profile and *out_icc_len set.
+ * Otherwise *out_icc = NULL and *out_icc_len = 0.
+ * When non-NULL, free *out_icc with pict_png_icc_free().
+ *
  * Output is always 8-bit.  channels = 3 (RGB) or 4 (RGBA).
  * Grayscale images are converted to RGB via PNG_TRANSFORM_GRAY_TO_RGB.
  * 16-bit images are reduced to 8-bit via PNG_TRANSFORM_STRIP_16.
@@ -80,11 +88,16 @@ int pict_png_decode(
     unsigned char      **out_data,
     unsigned int        *out_width,
     unsigned int        *out_height,
-    unsigned int        *out_channels)
+    unsigned int        *out_channels,
+    unsigned char      **out_icc,
+    unsigned int        *out_icc_len)
 {
     png_structp    png_ptr  = NULL;
     png_infop      info_ptr = NULL;
     unsigned char *data     = NULL;
+
+    if (out_icc) *out_icc = NULL;
+    if (out_icc_len) *out_icc_len = 0;
 
     png_ptr = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
     if (!png_ptr) return -1;
@@ -97,6 +110,11 @@ int pict_png_decode(
 
     if (setjmp(png_jmpbuf(png_ptr))) {
         free(data);
+        if (out_icc && *out_icc) {
+            pict_png_icc_free(*out_icc);
+            *out_icc = NULL;
+        }
+        if (out_icc_len) *out_icc_len = 0;
         png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
         return -1;
     }
@@ -146,6 +164,26 @@ int pict_png_decode(
     for (unsigned int y = 0; y < h; y++)
         memcpy(data + (unsigned long)y * row_stride, rows[y], row_stride);
 
+    /* Optional iCCP (must copy before png_destroy_read_struct invalidates profile pointer) */
+    if (out_icc && out_icc_len && png_get_valid(png_ptr, info_ptr, PNG_INFO_iCCP)) {
+        png_charp     icc_name = NULL;
+        int           compression_type = 0;
+        png_bytep     profile = NULL;
+        png_uint_32   proflen = 0;
+        if (png_get_iCCP(png_ptr, info_ptr, &icc_name, &compression_type, &profile, &proflen)
+            && profile != NULL && proflen > 0) {
+            unsigned char *icc_copy = (unsigned char *)malloc((size_t)proflen);
+            if (!icc_copy) {
+                free(data);
+                png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
+                return -2;
+            }
+            memcpy(icc_copy, profile, (size_t)proflen);
+            *out_icc     = icc_copy;
+            *out_icc_len = (unsigned int)proflen;
+        }
+    }
+
     png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
 
     *out_data     = data;
@@ -156,6 +194,8 @@ int pict_png_decode(
 }
 
 void pict_png_free(unsigned char *data) { free(data); }
+
+void pict_png_icc_free(unsigned char *icc) { free(icc); }
 
 /* ── Encode helper (used by tests) ─────────────────────────────────────── */
 

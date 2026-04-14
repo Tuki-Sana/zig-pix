@@ -118,12 +118,19 @@ fn runPipeline(allocator: std.mem.Allocator, cli: CliArgs) !void {
             .n_threads  = cli.threads,
         });
 
+        const icc_copy: ?[]u8 = if (src_buf.icc) |icc|
+            try allocator.dupe(u8, icc)
+        else
+            null;
+        errdefer if (icc_copy) |s| allocator.free(s);
+
         break :blk pict.decode.ImageBuffer{
             .width     = dst_w,
             .height    = dst_h,
             .channels  = src_buf.channels,
             .format    = src_buf.format,
             .data      = dst_data,
+            .icc       = icc_copy,
             .allocator = allocator,
         };
     };

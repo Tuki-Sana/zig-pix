@@ -21,6 +21,7 @@ pub const PixelFormat = enum {
 
 /// デコード済み画像バッファ。
 /// `deinit()` で allocator に返却する。zero-copy を守るため raw data を直接保持。
+/// `icc` が非 null のときは PNG iCCP 等の生バイト列（パススルー用）。リサイズ時は運び屋としてコピーを維持する。
 pub const ImageBuffer = struct {
     width: u32,
     height: u32,
@@ -28,10 +29,13 @@ pub const ImageBuffer = struct {
     format: PixelFormat,
     /// 生ピクセルデータ: [height * stride] bytes, row-major, top-left origin
     data: []u8,
+    /// 埋め込み ICC プロファイル（任意）。`allocator` で確保。
+    icc: ?[]u8 = null,
     allocator: std.mem.Allocator,
 
     pub fn deinit(self: *ImageBuffer) void {
         self.allocator.free(self.data);
+        if (self.icc) |blob| self.allocator.free(blob);
         self.* = undefined;
     }
 
@@ -163,9 +167,13 @@ extern fn pict_png_decode(
     out_width: *c_uint,
     out_height: *c_uint,
     out_channels: *c_uint,
+    out_icc: *[*c]u8,
+    out_icc_len: *c_uint,
 ) c_int;
 
 extern fn pict_png_free(data: [*]u8) void;
+
+extern fn pict_png_icc_free(data: [*c]u8) void;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // libwebp decode C bridge (src/c/webp_decode.c)
@@ -250,6 +258,7 @@ pub const JpegDecoder = struct {
             .channels = @intCast(out_channels),
             .format = .rgb8,
             .data = zig_buf,
+            .icc = null,
             .allocator = allocator,
         };
     }
@@ -300,6 +309,8 @@ pub const PngDecoder = struct {
         var out_width: c_uint = 0;
         var out_height: c_uint = 0;
         var out_channels: c_uint = 0;
+        var c_icc: [*c]u8 = null;
+        var c_icc_len: c_uint = 0;
 
         const result = pict_png_decode(
             data.ptr,
@@ -308,6 +319,8 @@ pub const PngDecoder = struct {
             &out_width,
             &out_height,
             &out_channels,
+            &c_icc,
+            &c_icc_len,
         );
 
         switch (result) {
@@ -327,6 +340,14 @@ pub const PngDecoder = struct {
         errdefer allocator.free(zig_buf);
         @memcpy(zig_buf, c_slice);
 
+        var icc_z: ?[]u8 = null;
+        errdefer if (icc_z) |s| allocator.free(s);
+        if (c_icc != null and c_icc_len > 0) {
+            const icc_len: usize = @intCast(c_icc_len);
+            icc_z = try allocator.dupe(u8, c_icc[0..icc_len]);
+            pict_png_icc_free(c_icc);
+        }
+
         const fmt: PixelFormat = if (ch == 4) .rgba8 else .rgb8;
         return ImageBuffer{
             .width = @intCast(out_width),
@@ -334,6 +355,7 @@ pub const PngDecoder = struct {
             .channels = @intCast(out_channels),
             .format = fmt,
             .data = zig_buf,
+            .icc = icc_z,
             .allocator = allocator,
         };
     }
@@ -411,6 +433,7 @@ pub const WebpDecoder = struct {
             .channels = @intCast(out_channels),
             .format = fmt,
             .data = zig_buf,
+            .icc = null,
             .allocator = allocator,
         };
     }
@@ -654,6 +677,22 @@ test "PngDecoder: corrupt data returns CorruptData" {
 
     const result = dec.decode(&garbage, std.testing.allocator);
     try std.testing.expectError(DecodeError.CorruptData, result);
+}
+
+// libavif テストデータ: iCCP 付き PNG → ImageBuffer.icc が非 null（パススルー抽出）
+test "PngDecoder: iCCP profile extracted" {
+    const path = "vendor/libavif/tests/data/paris_icc_exif_xmp.png";
+    const bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, path, 4 * 1024 * 1024);
+    defer std.testing.allocator.free(bytes);
+
+    var dec = pngDecoder();
+    defer dec.deinit();
+
+    var buf = try dec.decode(bytes, std.testing.allocator);
+    defer buf.deinit();
+
+    try std.testing.expect(buf.icc != null);
+    try std.testing.expect(buf.icc.?.len >= 128);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

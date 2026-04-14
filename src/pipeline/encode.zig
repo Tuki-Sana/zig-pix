@@ -195,6 +195,8 @@ const avif_c = if (has_avif) struct {
         channels: c_int,
         quality: c_int,
         speed: c_int,
+        icc: ?[*]const u8,
+        icc_len: usize,
         out_data: *[*]u8,
         out_size: *usize,
     ) c_int;
@@ -232,6 +234,9 @@ pub const AvifEncoder = struct {
         var out_data: [*]u8 = undefined;
         var out_size: usize = 0;
 
+        const icc_ptr: ?[*]const u8 = if (image.icc) |b| b.ptr else null;
+        const icc_len: usize = if (image.icc) |b| b.len else 0;
+
         const result = avif_c.pict_avif_encode(
             image.data.ptr,
             image.width,
@@ -239,6 +244,8 @@ pub const AvifEncoder = struct {
             @intCast(image.channels),
             @intCast(opts.quality),
             @intCast(opts.speed),
+            icc_ptr,
+            icc_len,
             &out_data,
             &out_size,
         );
