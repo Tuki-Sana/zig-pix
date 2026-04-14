@@ -232,6 +232,28 @@ npm publish --access public
 - **`build-native` には混ぜない**（ネイティブ CI の時間・失敗要因を増やさない）。
 - **npm publish は自動では行わない**（`NPM_TOKEN` を載せるまで）。成果物をダウンロードして手元で `wasm/` から `npm publish` するか、将来ジョブを足す。
 
+### npm publish（CI 成果物をコマンドで反映する手順）
+
+1. 成功した run の **databaseId** を確認する。
+
+   ```bash
+   gh run list --workflow=build-wasm.yml --branch main --limit 5
+   ```
+
+2. リポジトリルートで artifact を `wasm/dist/` に展開する（`gh` が認証済みであること）。
+
+   ```bash
+   bash scripts/fetch-wasm-artifact.sh RUN_ID
+   ```
+
+   `scripts/fetch-wasm-artifact.sh` は `gh run download` のあと、zip 内の **`avif.js` を探索**して親ディレクトリを `wasm/dist/` の中身としてコピーする（artifact の一段ディレクトリ差を吸収する）。
+
+3. 検証して publish する。
+
+   ```bash
+   cd wasm && npm test && npm publish --access public
+   ```
+
 ### Cloudflare Pages での使い方（要点）
 
 - **静的サイト**としてブラウザで動かす想定。`import { createAvifEncoder } from 'zigpix-wasm'` のように ESM で読み、bundler が `.wasm` をアセットとして吐き出す設定に合わせる。
