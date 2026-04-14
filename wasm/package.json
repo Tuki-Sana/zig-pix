@@ -1,6 +1,6 @@
 {
   "name": "zigpix-wasm",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Browser-side AVIF encoder for zigpix — powered by libavif + libaom compiled to WebAssembly",
   "type": "module",
   "exports": {
@@ -14,7 +14,8 @@
     "dist/avif.simd.js",
     "dist/avif.simd.wasm",
     "js/index.ts",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "bash ../scripts/build-wasm.sh",
