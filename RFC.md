@@ -36,5 +36,6 @@
 
 ## 6. 運用ドキュメント
 
+- 各ドキュメントの役割と読む順の目安は **`docs/README.md`** を参照。
 - 日常運用（Zig/mise、submodule、チェック手順）は `docs/operations.md` を参照。
 - **`main` へ push 済みから npm 公開まで**は `docs/release.md`（チェックリスト付き）。

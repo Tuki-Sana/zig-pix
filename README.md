@@ -315,6 +315,7 @@ FFI 結合テスト（`npm run test:bun` / `npm run test:node`）は **`zig buil
 
 ### ドキュメント
 
+- **各ファイルの意味・読む順**: [`docs/README.md`](./docs/README.md)
 - 設計要件: `RFC.md`
 - 日常運用・libavif セットアップ: `docs/operations.md`
 - **`main` push 後の npm リリース**: `docs/release.md`（チェックリスト付き）
