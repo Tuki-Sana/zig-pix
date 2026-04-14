@@ -15,7 +15,6 @@
 | [`docs/CHECKLIST.md`](./CHECKLIST.md) | 実装フェーズの**追跡用チェックリスト**（長い・時系列） | 実装中に見失わないため |
 | [`docs/dev_log.md`](./dev_log.md) | 開発メモ（日付つき抜粋）。正本にしない | メンテナの作業記録 |
 | [`docs/deps.md`](./deps.md) | vendor submodule とシステム libavif の一覧・更新方針 | 依存を触る人 |
-| [`docs/LOCAL.example.md`](./LOCAL.example.md) | **`docs/LOCAL.md` のテンプレ**（git 管理外の個人メモ用） | メンテナ（任意） |
 
 ## 読む順（目安）
 
@@ -33,4 +32,4 @@
 
 ## コミットしないメモ
 
-**認証情報・社内 URL・自分用の RUN_ID メモ**など、リポジトリに載せたくない内容は **`docs/LOCAL.md`** に書く（`.gitignore` 済み）。テンプレは **[`docs/LOCAL.example.md`](./LOCAL.example.md)** を `docs/LOCAL.md` にコピーして使う。
+リポジトリに載せたくない一行メモ（例: 直近の Actions `RUN_ID`）用に、**`docs/LOCAL.md`** を置いてよい（`.gitignore` 済みでコミットされない）。初めては `touch docs/LOCAL.md` で空ファイルからでよい。
