@@ -3,7 +3,7 @@
  * Deno entry point using Deno.dlopen
  *
  * Supported operations:
- *   decode()     — JPEG / PNG → raw pixels
+ *   decode()     — JPEG / PNG / still WebP → raw pixels
  *   resize()     — Lanczos-3 high-quality resize
  *   encodeWebP() — WebP encode (lossy / lossless)
  *   encodeAvif() — AVIF encode
