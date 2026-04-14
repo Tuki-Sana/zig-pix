@@ -16,6 +16,8 @@
  *   BENCH_QUALITY_ANCHOR_Q / BENCH_QUALITY_ANCHOR_SPEED  Sharp (default 60 / 6)
  *   BENCH_QUALITY_ZIGPIX_SPEED  zigpix 探索・計測時の speed (default 6)
  *   BENCH_QUALITY_SEARCH_STEP  quality 走査間隔 1–10 (default 1; 5 で粗探索+細探索)
+ *   BENCH_FIXTURE — default | character_* | landscape_*（bench/fixtures.ts、旧別名あり）
+ *   BENCH_QUALITY_MIN_SSIM  下限を指定すると未満で exit 1（省略時は報告のみ）
  *   BENCH_WARMUP_N / BENCH_MEASURE_N
  *
  * Run: npm run build && npm run bench:quality
@@ -29,10 +31,12 @@ import { readFileSync, mkdirSync, writeFileSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { createRequire } from "module";
+import { resolveFixturePath } from "./fixtures.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const BASE_FIXTURE = join(__dirname, "../test/fixtures/bench_input.png");
 const OUT_DIR = join(__dirname, "results");
+
+const { id: fixtureId, path: FIXTURE_PATH } = resolveFixturePath(process.env.BENCH_FIXTURE);
 
 const TOLERANCE = Math.min(0.5, Math.max(0.01, parseFloat(process.env.BENCH_QUALITY_TOLERANCE ?? "0.1")));
 const OUT_W = Math.max(64, parseInt(process.env.BENCH_QUALITY_OUT_W ?? "960", 10));
@@ -43,6 +47,11 @@ const ZIGPIX_SPEED = Math.min(10, Math.max(0, parseInt(process.env.BENCH_QUALITY
 const SEARCH_STEP = Math.min(10, Math.max(1, parseInt(process.env.BENCH_QUALITY_SEARCH_STEP ?? "1", 10)));
 const WARMUP_N = Math.max(0, parseInt(process.env.BENCH_WARMUP_N ?? "2", 10));
 const MEASURE_N = Math.max(1, parseInt(process.env.BENCH_MEASURE_N ?? "10", 10));
+const MIN_SSIM_RAW = process.env.BENCH_QUALITY_MIN_SSIM?.trim();
+const MIN_SSIM =
+  MIN_SSIM_RAW !== undefined && MIN_SSIM_RAW !== ""
+    ? Math.min(1, Math.max(0, parseFloat(MIN_SSIM_RAW)))
+    : null;
 
 mkdirSync(OUT_DIR, { recursive: true });
 
@@ -155,6 +164,57 @@ function summarize(times: number[]) {
   };
 }
 
+/** Sharp で AVIF → RGB raw（輝度 SSIM 用）。グリッドは anchor と同一に fill で揃える。 */
+async function decodeAvifRgbFill(avif: Buffer, width: number, height: number): Promise<Buffer> {
+  const { data, info } = await sharp(avif)
+    .resize(width, height, { fit: "fill" })
+    .removeAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  if (info.channels !== 3) {
+    throw new Error(`decodeAvifRgbFill: expected 3 channels, got ${info.channels}`);
+  }
+  return data;
+}
+
+/**
+ * 輝度のグローバル SSIM（単一ウィンドウ・Wang et al. の式）。
+ * 両画像は同一 WxH の RGB8 raw。厳密な知覚一致ではなく回帰用の簡易指標。
+ */
+function ssimLuminanceGlobal(a: Buffer, b: Buffer, width: number, height: number): number {
+  const n = width * height;
+  if (a.length !== b.length || a.length !== n * 3) return NaN;
+  let sum1 = 0;
+  let sum2 = 0;
+  let sum1sq = 0;
+  let sum2sq = 0;
+  let sum12 = 0;
+  for (let i = 0; i < n; i++) {
+    const o = i * 3;
+    const y1 = 0.299 * a[o] + 0.587 * a[o + 1] + 0.114 * a[o + 2];
+    const y2 = 0.299 * b[o] + 0.587 * b[o + 1] + 0.114 * b[o + 2];
+    sum1 += y1;
+    sum2 += y2;
+    sum1sq += y1 * y1;
+    sum2sq += y2 * y2;
+    sum12 += y1 * y2;
+  }
+  const mu1 = sum1 / n;
+  const mu2 = sum2 / n;
+  const var1 = sum1sq / n - mu1 * mu1;
+  const var2 = sum2sq / n - mu2 * mu2;
+  const cov = sum12 / n - mu1 * mu2;
+  const L = 255;
+  const K1 = 0.01;
+  const K2 = 0.03;
+  const C1 = (K1 * L) ** 2;
+  const C2 = (K2 * L) ** 2;
+  const num = (2 * mu1 * mu2 + C1) * (2 * cov + C2);
+  const den = (mu1 * mu1 + mu2 * mu2 + C1) * (var1 + var2 + C2);
+  if (den === 0 || !Number.isFinite(den)) return NaN;
+  return num / den;
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 const runner = process.env.RUNNER_OS
@@ -162,11 +222,12 @@ const runner = process.env.RUNNER_OS
   : `${process.platform}-${process.arch} (local)`;
 
 console.log("bench-quality.ts — encode-only, Sharp size anchor");
+console.log(`  fixture: ${fixtureId} (${FIXTURE_PATH})`);
 console.log(`  resize output: ${OUT_W}×${OUT_H}, tolerance ±${(TOLERANCE * 100).toFixed(0)}%`);
 console.log(`  anchor: Sharp AVIF quality=${ANCHOR_Q} speed=${ANCHOR_SPEED}`);
 console.log(`  zigpix speed (fixed): ${ZIGPIX_SPEED}, search step: ${SEARCH_STEP}\n`);
 
-const png = readFileSync(BASE_FIXTURE);
+const png = readFileSync(FIXTURE_PATH);
 const decoded = decode(png);
 const pixels = resize(decoded, { width: OUT_W, height: OUT_H });
 
@@ -195,6 +256,34 @@ const sharpS = summarize(sharpTimes);
 
 const ratio = sharpS.median_ms / zigS.median_ms;
 
+const zigAvifBuf = zigpixEncodeBytes(pixels, cal.quality, ZIGPIX_SPEED);
+if (zigAvifBuf === null) throw new Error("zigpix final encode returned null");
+
+let ssimLuminance: number | null = null;
+let ssimError: string | null = null;
+try {
+  const rgbAnchor = await decodeAvifRgbFill(sharpBuf, pixels.width, pixels.height);
+  const rgbZig = await decodeAvifRgbFill(zigAvifBuf, pixels.width, pixels.height);
+  ssimLuminance = ssimLuminanceGlobal(rgbAnchor, rgbZig, pixels.width, pixels.height);
+} catch (e) {
+  ssimError = e instanceof Error ? e.message : String(e);
+}
+
+let ssimPassed: boolean | null = null;
+if (MIN_SSIM !== null) {
+  if (ssimError !== null || ssimLuminance === null || Number.isNaN(ssimLuminance)) {
+    console.error(`SSIM gate: 計算できません (${ssimError ?? "n/a"})`);
+    process.exit(1);
+  }
+  ssimPassed = ssimLuminance >= MIN_SSIM;
+  if (!ssimPassed) {
+    console.error(
+      `SSIM gate failed: luminance SSIM=${ssimLuminance.toFixed(4)} < min ${MIN_SSIM}`,
+    );
+    process.exit(1);
+  }
+}
+
 console.log(`
 ┌────────────────────────────────────────────────────────────┐
 │  Encode-only (median ms, ${MEASURE_N} iterations)                    │
@@ -206,6 +295,14 @@ console.log(`
 └──────────┴──────────┴──────────┴──────────┴────────────────┘
 ratio = sharp_median / zigpix_median (${ratio.toFixed(2)})
 `);
+if (ssimError) {
+  console.log(`SSIM (luminance, global): skipped — ${ssimError}`);
+} else {
+  console.log(
+    `SSIM (luminance, global): ${ssimLuminance?.toFixed(4) ?? "n/a"}${MIN_SSIM !== null ? ` (min ${MIN_SSIM}, ${ssimPassed ? "ok" : "fail"})` : ""}`,
+  );
+}
+console.log("");
 
 const now = new Date().toISOString();
 const jsonResult = {
@@ -222,7 +319,8 @@ const jsonResult = {
     output_bytes: targetLen,
   },
   pixel_buffer: {
-    fixture: "test/fixtures/bench_input.png",
+    fixture_id: fixtureId,
+    fixture_path: FIXTURE_PATH,
     decode_resize: "zigpix",
     width: pixels.width,
     height: pixels.height,
@@ -242,6 +340,14 @@ const jsonResult = {
     sharp_encode: sharpS,
     ratio_sharp_median_over_zigpix_median: parseFloat(ratio.toFixed(2)),
   },
+  ssim: {
+    method: "luminance_global_decode_via_sharp_fill_resize",
+    vs_anchor: "sharp_avif_decoded",
+    value: ssimLuminance !== null && !Number.isNaN(ssimLuminance) ? parseFloat(ssimLuminance.toFixed(4)) : null,
+    error: ssimError,
+    min_threshold: MIN_SSIM,
+    passed: ssimPassed,
+  },
 };
 
 const md = `# benchmark-quality (encode-only, size-matched)
@@ -252,15 +358,16 @@ const md = `# benchmark-quality (encode-only, size-matched)
 
 | Item | Value |
 |------|------:|
-| Pixel buffer | ${pixels.width}×${pixels.height}, ${pixels.channels} ch (from \`bench_input.png\` via zigpix decode+resize) |
+| Pixel buffer | ${pixels.width}×${pixels.height}, ${pixels.channels} ch (fixture \`${fixtureId}\`, zigpix decode+resize) |
 | Sharp anchor | quality=${ANCHOR_Q}, speed=${ANCHOR_SPEED}, **${targetLen}** bytes |
 | zigpix chosen | quality=${cal.quality}, speed=${ZIGPIX_SPEED}, **${cal.bytes}** bytes |
 | Within ± band | **${cal.withinTolerance ? "yes" : "no"}** |
 | zigpix encode median | **${fmt(zigS.median_ms)}** ms |
 | Sharp encode median | **${fmt(sharpS.median_ms)}** ms |
 | ratio (sharp÷zigpix) | **${ratio.toFixed(2)}×** |
+| SSIM (輝度・グローバル) | **${ssimError ? `skipped: ${ssimError}` : (ssimLuminance?.toFixed(4) ?? "n/a")}** |
 
-See \`benchmark-quality.json\` for machine-readable fields.
+See \`benchmark-quality.json\` for machine-readable fields (\`ssim\`)。\`BENCH_QUALITY_MIN_SSIM\` で下限ゲート可能。
 `;
 
 const jsonPath = join(OUT_DIR, "benchmark-quality.json");

@@ -2,10 +2,11 @@
  * bench/bench.ts — zigpix vs sharp benchmark (multi-scenario)
  *
  * For each scenario: decode(PNG) → resize(outW×outH) → encodeAVIF(quality, speed)
- * Input PNGs are generated once from test/fixtures/bench_input.png (512×512)
+ * Input PNGs are generated once from BENCH_FIXTURE（既定: bench_input.png）
  * scaled with Sharp (cover) to the target width×height.
  *
  * WARMUP_N / MEASURE_N overridable via BENCH_WARMUP_N / BENCH_MEASURE_N.
+ * BENCH_FIXTURE — default | character_kanata | character_chika | landscape_*（`bench/fixtures.ts`、旧別名あり）
  *
  * Output:
  *   bench/results/benchmark.json
@@ -22,10 +23,12 @@ import sharp from "sharp";
 import { readFileSync, mkdirSync, writeFileSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
+import { resolveFixturePath } from "./fixtures.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const BASE_FIXTURE = join(__dirname, "../test/fixtures/bench_input.png");
 const OUT_DIR = join(__dirname, "results");
+
+const { id: fixtureId, path: FIXTURE_PATH } = resolveFixturePath(process.env.BENCH_FIXTURE);
 
 const WARMUP_N = Math.max(0, parseInt(process.env.BENCH_WARMUP_N ?? "2", 10));
 const MEASURE_N = Math.max(1, parseInt(process.env.BENCH_MEASURE_N ?? "10", 10));
@@ -60,7 +63,7 @@ function fmt(ms: number): string {
 }
 
 async function makeInputPng(s: Scenario): Promise<Buffer> {
-  const base = readFileSync(BASE_FIXTURE);
+  const base = readFileSync(FIXTURE_PATH);
   return sharp(base)
     .resize(s.inW, s.inH, { fit: "cover", position: "centre" })
     .png()
@@ -113,7 +116,8 @@ console.log(
   `Benchmark: decode + resize + AVIF (quality=${AVIF_QUALITY}, speed=${AVIF_SPEED})`,
 );
 console.log(`Warm-up: ${WARMUP_N} / Measure: ${MEASURE_N} iterations`);
-console.log(`Input: ${BASE_FIXTURE} → Sharp cover-resize per scenario\n`);
+console.log(`Fixture: ${fixtureId} (${FIXTURE_PATH})`);
+console.log(`Input → Sharp cover-resize per scenario\n`);
 
 const scenarioResults: Array<{
   scenario: Scenario;
@@ -174,7 +178,8 @@ const jsonResult = {
   runner,
   pipeline: "decode PNG → resize → AVIF",
   fixture: {
-    source: "test/fixtures/bench_input.png",
+    id: fixtureId,
+    path: FIXTURE_PATH,
     per_scenario: "Sharp resize (fit=cover) to inW×inH, then PNG bytes fed to timed loop",
   },
   avif: { quality: AVIF_QUALITY, speed: AVIF_SPEED },
@@ -206,7 +211,7 @@ const mdResult = `# Benchmark Results (matrix)
 **Runner**: ${runner}  
 **Pipeline**: decode PNG → resize → AVIF (quality=${AVIF_QUALITY}, speed=${AVIF_SPEED})  
 **Warm-up / measure**: ${WARMUP_N} / ${MEASURE_N} per tool per scenario  
-**Input**: \`test/fixtures/bench_input.png\` scaled to each input size (Sharp, \`fit=cover\`) once per scenario; timed section starts from those PNG bytes.
+**Fixture**: \`${fixtureId}\` — PNG scaled to each input size (Sharp, \`fit=cover\`) once per scenario; timed section starts from those PNG bytes.
 
 | シナリオ | 入力 (px) | 出力 (px) | zigpix med (ms) | zig min | zig max | sharp med (ms) | sharp min | sharp max | ratio |
 |----------|-----------|-----------|----------------:|--------:|--------:|---------------:|----------:|----------:|------:|
