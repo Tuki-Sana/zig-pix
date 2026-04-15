@@ -1,7 +1,7 @@
 {
   "name": "zigpix",
   "version": "0.1.5",
-  "description": "High-performance image processing engine (Zig + libavif). Faster AVIF encoding than Sharp.",
+  "description": "High-performance image processing engine (Zig + libavif). Decode, resize, WebP/AVIF encode. Speed vs Sharp depends on pipeline and hardware — see README benchmarks.",
   "type": "module",
   "main": "js/dist/index.js",
   "types": "js/dist/index.d.ts",

@@ -12,6 +12,8 @@
 ### ドキュメント
 
 - **README**: `bench/bench.ts` の **VPS / Mac 実測**（同一条件・各 3 回のセル中央値）、機材・runner の注記、環境別の棲み分け（目安）、`npm run bench:aggregate` の案内。
+- **README**: 「比較の読み方」の **少コア VPS** を「上の **VPS 実測**の表」と明記（Mac 実測と対称）。
+- **`package.json` の `description`**: ベンチで示す環境差と整合（Sharp との速度は **パイプライン・マシン依存**、詳細は README）。
 - **開発者向け**: `scripts/bench-aggregate-multi-run.mjs`（複数 run の `benchmark.json` を集計し Markdown 断片を標準出力へ）。
 
 ### 利用者向けメモ
