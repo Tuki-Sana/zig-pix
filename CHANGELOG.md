@@ -7,6 +7,23 @@
 
 （次パッチ以降の差分をここに書く）
 
+## [0.1.5] - 2026-04-15
+
+### ドキュメント
+
+- **README**: `bench/bench.ts` の **VPS / Mac 実測**（同一条件・各 3 回のセル中央値）、機材・runner の注記、環境別の棲み分け（目安）、`npm run bench:aggregate` の案内。
+- **開発者向け**: `scripts/bench-aggregate-multi-run.mjs`（複数 run の `benchmark.json` を集計し Markdown 断片を標準出力へ）。
+
+### 利用者向けメモ
+
+- **API・ネイティブバイナリの機能変更なし**（本リリースはドキュメントとベンチ周辺の整備）。
+
+### zigpix-wasm（`npm install zigpix-wasm@0.1.5`）
+
+- ブラウザ向け **AVIF エンコード専用**パッケージ。本リリースでは **バージョン番号を `zigpix` 0.1.5 に合わせた配布**（API・WASM バイナリの機能変更なし）。詳細は **`wasm/CHANGELOG.md`**。
+
+---
+
 ## [0.1.4] - 2026-04-14
 
 ### 追加
