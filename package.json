@@ -26,7 +26,8 @@
     "test:node": "bash test/ffi/run.node.sh",
     "mem:peak": "bash scripts/mem-peak.sh",
     "bench": "tsx bench/bench.ts",
-    "bench:quality": "tsx bench/bench-quality.ts"
+    "bench:quality": "tsx bench/bench-quality.ts",
+    "bench:aggregate": "node scripts/bench-aggregate-multi-run.mjs"
   },
   "keywords": [
     "avif",
