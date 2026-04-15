@@ -49,6 +49,9 @@ jobs:
         run: npm run build
 
       - name: Run benchmark (zigpix vs sharp, FHD / WQHD / 4K 相当)
+        env:
+          # Full multi-fixture matrix is default locally; CI keeps bench_input only for time/artifact size.
+          BENCH_FIXTURES: bench_input
         run: npx tsx bench/bench.ts
 
       - name: Upload benchmark results

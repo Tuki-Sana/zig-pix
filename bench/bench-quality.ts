@@ -11,6 +11,7 @@
  *   4) その設定で encode のみ warm-up + measure（Sharp は常に anchor）
  *
  * Env:
+ *   BENCH_QUALITY_FIXTURE  basename under test/fixtures/ (default bench_input.png)
  *   BENCH_QUALITY_TOLERANCE  相対幅 (default 0.10 = ±10%)
  *   BENCH_QUALITY_OUT_W / BENCH_QUALITY_OUT_H  リサイズ後 (default 960×540)
  *   BENCH_QUALITY_ANCHOR_Q / BENCH_QUALITY_ANCHOR_SPEED  Sharp (default 60 / 6)
@@ -21,6 +22,10 @@
  * Run: npm run build && npm run bench:quality
  *
  * Output: bench/results/benchmark-quality.json (+ .md)
+ *   bench/results/report-quality.html  (./samples/*.avif)
+ *   bench/results/samples/quality-{zigpix|sharp}.avif
+ *
+ * Env: BENCH_WRITE_SAMPLES=0 skips AVIF + HTML (JSON/Markdown only).
  */
 
 import { decode, resize, encodeAvif, type ImageBuffer } from "zigpix";
@@ -29,10 +34,14 @@ import { readFileSync, mkdirSync, writeFileSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { createRequire } from "module";
+import { writeQualityHtml } from "./report-html";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const BASE_FIXTURE = join(__dirname, "../test/fixtures/bench_input.png");
+/** Basename under test/fixtures/ (default bench_input.png). Example: bench_landscape_light.png */
+const QUALITY_FIXTURE_FILE = process.env.BENCH_QUALITY_FIXTURE?.trim() || "bench_input.png";
+const BASE_FIXTURE = join(__dirname, "../test/fixtures", QUALITY_FIXTURE_FILE);
 const OUT_DIR = join(__dirname, "results");
+const SAMPLES_DIR = join(OUT_DIR, "samples");
 
 const TOLERANCE = Math.min(0.5, Math.max(0.01, parseFloat(process.env.BENCH_QUALITY_TOLERANCE ?? "0.1")));
 const OUT_W = Math.max(64, parseInt(process.env.BENCH_QUALITY_OUT_W ?? "960", 10));
@@ -43,6 +52,7 @@ const ZIGPIX_SPEED = Math.min(10, Math.max(0, parseInt(process.env.BENCH_QUALITY
 const SEARCH_STEP = Math.min(10, Math.max(1, parseInt(process.env.BENCH_QUALITY_SEARCH_STEP ?? "1", 10)));
 const WARMUP_N = Math.max(0, parseInt(process.env.BENCH_WARMUP_N ?? "2", 10));
 const MEASURE_N = Math.max(1, parseInt(process.env.BENCH_MEASURE_N ?? "10", 10));
+const WRITE_SAMPLES = process.env.BENCH_WRITE_SAMPLES !== "0";
 
 mkdirSync(OUT_DIR, { recursive: true });
 
@@ -162,6 +172,7 @@ const runner = process.env.RUNNER_OS
   : `${process.platform}-${process.arch} (local)`;
 
 console.log("bench-quality.ts — encode-only, Sharp size anchor");
+console.log(`  fixture: test/fixtures/${QUALITY_FIXTURE_FILE}`);
 console.log(`  resize output: ${OUT_W}×${OUT_H}, tolerance ±${(TOLERANCE * 100).toFixed(0)}%`);
 console.log(`  anchor: Sharp AVIF quality=${ANCHOR_Q} speed=${ANCHOR_SPEED}`);
 console.log(`  zigpix speed (fixed): ${ZIGPIX_SPEED}, search step: ${SEARCH_STEP}\n`);
@@ -195,6 +206,20 @@ const sharpS = summarize(sharpTimes);
 
 const ratio = sharpS.median_ms / zigS.median_ms;
 
+let zigpixSampleRel = "";
+let sharpSampleRel = "";
+let zigpixWrittenBytes = 0;
+if (WRITE_SAMPLES) {
+  mkdirSync(SAMPLES_DIR, { recursive: true });
+  const zbuf = zigpixEncodeBytes(pixels, cal.quality);
+  if (zbuf === null) throw new Error("zigpix encode failed when writing samples");
+  zigpixWrittenBytes = zbuf.length;
+  sharpSampleRel = "samples/quality-sharp.avif";
+  zigpixSampleRel = "samples/quality-zigpix.avif";
+  writeFileSync(join(SAMPLES_DIR, "quality-sharp.avif"), sharpBuf);
+  writeFileSync(join(SAMPLES_DIR, "quality-zigpix.avif"), zbuf);
+}
+
 console.log(`
 ┌────────────────────────────────────────────────────────────┐
 │  Encode-only (median ms, ${MEASURE_N} iterations)                    │
@@ -215,6 +240,16 @@ const jsonResult = {
   mode: "encode-only-size-matched",
   sharp_version: sharpVersion(),
   tolerance_ratio: TOLERANCE,
+  write_samples: WRITE_SAMPLES,
+  report_html: WRITE_SAMPLES ? "report-quality.html (relative to bench/results/)" : null,
+  sample_avif: WRITE_SAMPLES
+    ? {
+        sharp: sharpSampleRel,
+        zigpix: zigpixSampleRel,
+        sharp_bytes: targetLen,
+        zigpix_bytes: zigpixWrittenBytes,
+      }
+    : null,
   anchor: {
     tool: "sharp",
     quality: ANCHOR_Q,
@@ -222,7 +257,7 @@ const jsonResult = {
     output_bytes: targetLen,
   },
   pixel_buffer: {
-    fixture: "test/fixtures/bench_input.png",
+    fixture: `test/fixtures/${QUALITY_FIXTURE_FILE}`,
     decode_resize: "zigpix",
     width: pixels.width,
     height: pixels.height,
@@ -260,12 +295,49 @@ const md = `# benchmark-quality (encode-only, size-matched)
 | Sharp encode median | **${fmt(sharpS.median_ms)}** ms |
 | ratio (sharp÷zigpix) | **${ratio.toFixed(2)}×** |
 
+${
+  WRITE_SAMPLES
+    ? `Sample AVIFs: \`report-quality.html\`, \`samples/quality-sharp.avif\`, \`samples/quality-zigpix.avif\`.`
+    : `Sample AVIFs skipped (\`BENCH_WRITE_SAMPLES=0\`).`
+}
+
 See \`benchmark-quality.json\` for machine-readable fields.
 `;
 
 const jsonPath = join(OUT_DIR, "benchmark-quality.json");
 const mdPath = join(OUT_DIR, "benchmark-quality.md");
+const htmlPath = join(OUT_DIR, "report-quality.html");
+
 writeFileSync(jsonPath, JSON.stringify(jsonResult, null, 2) + "\n");
 writeFileSync(mdPath, md);
+
+if (WRITE_SAMPLES) {
+  writeQualityHtml(htmlPath, {
+    date: now,
+    runner,
+    node: process.version,
+    tolerance_pct: TOLERANCE * 100,
+    anchor: { quality: ANCHOR_Q, speed: ANCHOR_SPEED, bytes: targetLen },
+    zigpix: {
+      quality: cal.quality,
+      speed: ZIGPIX_SPEED,
+      bytes: cal.bytes,
+      within: cal.withinTolerance,
+    },
+    timings: {
+      zigpix_median_ms: zigS.median_ms,
+      sharp_median_ms: sharpS.median_ms,
+      ratio: parseFloat(ratio.toFixed(2)),
+    },
+    zigpix_sample_rel: zigpixSampleRel,
+    sharp_sample_rel: sharpSampleRel,
+    pixels: `${pixels.width}×${pixels.height}, ${pixels.channels} ch`,
+  });
+}
+
 console.log(`Wrote ${jsonPath}`);
 console.log(`Wrote ${mdPath}`);
+if (WRITE_SAMPLES) {
+  console.log(`Wrote ${htmlPath}`);
+  console.log(`Wrote ${SAMPLES_DIR}/`);
+}
