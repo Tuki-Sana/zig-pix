@@ -1,5 +1,7 @@
 # zigpix
 
+**npm:** [zigpix](https://www.npmjs.com/package/zigpix)（Node / Bun / Deno・ネイティブ） · [zigpix-wasm](https://www.npmjs.com/package/zigpix-wasm)（ブラウザ向け AVIF エンコード）
+
 Zig 製の高速画像処理ライブラリです。  
 JPEG / PNG / 静止画 WebP をデコードし、Lanczos-3 リサイズを経て WebP / AVIF にエンコードします。  
 **HEIC / HEIF は非対応。** 必要ならクライアントで JPEG/PNG に変換してから渡してください（HEVC 特許・対応環境の都合でコアのスコープ外）。
