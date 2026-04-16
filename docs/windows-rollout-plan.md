@@ -156,6 +156,7 @@
 | CI の verify が **exit 157** などで即死（ログに `ok:` が無い） | Git Bash から **`dumpbin` を stdout リダイレクト**すると異常終了することがある | **`llvm-readobj` / `llvm-objdump` 主経路**（`scripts/ci-verify-libpict-windows.sh` 実装） |
 | **`build-windows-arm64`** で Bun が **`dlopen() is not available`** | Bun Windows ARM64 で **FFI / TinyCC がビルドから無効** | CI では **Bun の FFI/E2E をスキップ**し、**Node + Deno** で網羅（Bun が WoA で FFI 対応したらワークフローに戻す） |
 | **Node/koffi** が **`libpict.dll` を開けない**／**`process.arch` が `x64`** | **`windows-11-arm` が AMD64 を誤報**し既定 Node が x64 のことがある | **`actions/setup-node` の `architecture: arm64`**。テスト・ローダーは **`RUNNER_ARCH === 'ARM64'`** で **`windows-aarch64`** を解決（`partner-runner-images#117`） |
+| **`Failed to load shared library: The operation completed successfully`**（koffi） | 旧 koffi の **Windows での `GetLastError` / 依存 DLL 探索**の不具合や **SEHOP** との相互作用 | ルート **`koffi` を ^2.16 系**に上げる（changelog: 2.6.9 DLL ディレクトリ探索、2.6.10 GetLastError、2.8.5/2.8.7 load・SEHOP 等）。CI では **Python `ctypes.WinDLL`** で DLL 単体のロード可否を別途確認 |
 
 ---
 

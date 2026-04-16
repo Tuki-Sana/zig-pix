@@ -10,9 +10,9 @@
  * Or:  bash test/ffi/run.node.sh  (runs zig build lib first)
  */
 import koffi from "koffi";
-import { readFileSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { fileURLToPath } from "url";
-import { dirname, join } from "path";
+import { dirname, join, resolve } from "path";
 import { arch, platform } from "os";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -22,12 +22,27 @@ const winZigOutDir =
   platform() === "win32" && (arch() === "arm64" || process.env.RUNNER_ARCH === "ARM64")
     ? "windows-aarch64"
     : "windows-x86_64";
-const LIB_PATH =
+const LIB_PATH = resolve(
   platform() === "win32"
     ? join(repoRoot, "zig-out", winZigOutDir, "libpict.dll")
-    : join(repoRoot, "zig-out", "lib", "libpict." + suffix);
+    : join(repoRoot, "zig-out", "lib", "libpict." + suffix),
+);
 
-const lib = koffi.load(LIB_PATH);
+if (!existsSync(LIB_PATH)) {
+  throw new Error(
+    `libpict not found at ${LIB_PATH} (cwd=${process.cwd()} arch=${arch()} RUNNER_ARCH=${process.env.RUNNER_ARCH ?? ""})`,
+  );
+}
+
+let lib: ReturnType<typeof koffi.load> | undefined;
+try {
+  lib = koffi.load(LIB_PATH);
+} catch (e) {
+  console.error(
+    `koffi.load failed: ${LIB_PATH} (size=${readFileSync(LIB_PATH).length} node=${process.version} arch=${process.arch})`,
+  );
+  throw e;
+}
 
 // ── Function declarations (C prototype syntax) ────────────────────────────────
 
@@ -329,7 +344,7 @@ try {
     }
   }
 } finally {
-  lib.unload();
+  lib?.unload();
 }
 
 const TOTAL = 8;
