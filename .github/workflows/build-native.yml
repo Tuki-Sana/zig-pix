@@ -3,7 +3,9 @@ name: Build native binaries
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - "feat/**" # feature で push しただけでも CI（Windows 含む）を回す
   pull_request:
     branches: [main]
   workflow_dispatch:
