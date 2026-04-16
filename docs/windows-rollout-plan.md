@@ -204,7 +204,13 @@
 
 **ゲート B — 実行検証（ホスト ARM64）**
 
-- [x] **`windows-11-arm` 上**で **Node + Deno** の **FFI / E2E**（CI ジョブ内）。**Bun** は WoA 公式ビルドで FFI 非対応のため CI ではスキップ（上表）  
+> **⚠ 既知制約（2026-04-17 確定）**: `windows-11-arm` ランナーの `node.exe` は **ARM64EC (Machine 0xA641)**。  
+> Zig 0.13.0 が生成する `libpict.dll` は **純 ARM64 (0xAA64)**。  
+> ARM64EC プロセスは純 ARM64 DLL を `LoadLibrary` できない（OS 仕様）。  
+> **恒久修正は Zig が `aarch64_ec-windows-msvc` ターゲットをサポートした時点で対応。**  
+> それまで FFI / E2E テストは CI でスキップし、DLL の validity は `LOAD_LIBRARY_AS_DATAFILE`（ゲート A の verify ステップ）で保証する。
+
+- [~] **`windows-11-arm` 上での Node + Deno の FFI / E2E** — **現在スキップ**（ARM64EC vs 純 ARM64 非互換。上記制約参照）。**Bun** は WoA 公式ビルドで FFI 非対応のため引き続きスキップ。  
 - [ ] **エンドユーザー実機**（Surface 等）での確認と、README / CHANGELOG での **`zigpix-win32-arm64` サポート表記**の最終文言（「CI 済み」→「実機確認済み」への格上げタイミング）  
 
 **撤退ライン**
@@ -234,7 +240,7 @@
 
 1. **`main`（またはマージ予定ブランチ）**で、**Windows x64** の CI が **ビルド＋シンボル検証＋ Node/Bun/Deno テスト**まで緑（必須チェックに含める）。  
 2. **AVIF を含む**既存の FFI / E2E が **Node・Bun・Deno** で **Windows x64** 上で通る。  
-3. **Windows ARM64**: **ゲート A**（`lib-windows-arm64` + artifact）を満たすこと。**CI 上のゲート B**（`windows-11-arm` で FFI/E2E）は **`build-windows-arm64`** で実施。**エンドユーザー実機**の確認状況は CHANGELOG / README で明示する（§4 M3）。  
+3. **Windows ARM64**: **ゲート A**（`lib-windows-arm64` + artifact + `LOAD_LIBRARY_AS_DATAFILE` verify）を満たすこと。**ゲート B（FFI/E2E）は現時点でスキップ**（ARM64EC vs 純 ARM64 非互換。§4 M3 の既知制約参照）。エンドユーザー実機での確認は Zig ARM64EC 対応後に改めて実施し、CHANGELOG / README で明示する。  
 4. **手動リリース手順**（`docs/release.md`）に従い、**optional サブパッケージを先に publish → 最後にルート `zigpix`**。ARM64 を含めるリリースでは **`zigpix-win32-arm64@0.2.1` を win32-x64 の次に publish**し、ルートの `optionalDependencies` と **バージョン（例: 0.2.1）**を整合させる。  
 
 ---
