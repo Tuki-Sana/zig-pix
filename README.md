@@ -295,20 +295,24 @@ bash scripts/mem-peak.sh
 
 **開発時にローカルでビルドした `libpict` を使いたい**
 
-`zig build lib` で `zig-out/lib/libpict.{dylib,so}` を生成したうえで、環境変数 **`ZIGPIX_LIB`** にそのファイルへの **フルパス**を設定すると、optional パッケージより優先して読み込みます（`js/src/index.ts` の解決順は `ZIGPIX_LIB` → リポジトリルートの `zig-out/lib` → optional）。
+- **macOS / Linux**: `zig build lib` で `zig-out/lib/libpict.{dylib,so}` を生成。  
+- **Windows x64（MSVC）**: 事前に `vendor/libavif` を CMake で静的ビルドしたうえで **`zig build lib-windows -Davif=static`** → **`zig-out/windows-x86_64/libpict.dll`**（手順の詳細は **`docs/windows-rollout-plan.md` §3.2** / **`docs/operations.md` §6**）。
+
+環境変数 **`ZIGPIX_LIB`** に、上記いずれかのファイルへの **フルパス**を設定すると、optional パッケージより優先して読み込みます（`js/src/index.ts` の解決順は `ZIGPIX_LIB` → リポジトリルートの `zig-out/...` → optional）。
 
 ---
 
 ## 動作環境
 
-| ランタイム | macOS arm64 | Linux x86_64 |
-|-----------|:-----------:|:------------:|
-| Node.js 18+ | ✅ | ✅ |
-| Bun | ✅ | ✅ |
-| Deno 2.x | ✅ | ✅ |
-| Windows | ❌ 未対応 | — |
-| Cloudflare Pages（WASM） | ✅ `zigpix-wasm` | ✅ `zigpix-wasm` |
-| Cloudflare Workers | ❌（CPU 制限により非対応）| — |
+| ランタイム | macOS arm64 | Linux x86_64 | Windows x64 |
+|-----------|:-----------:|:------------:|:-------------:|
+| Node.js 18+ | ✅ | ✅ | ✅ **0.2.0** から optional **`zigpix-win32-x64`**（**Windows 10+ x64**）。初回のみ **SmartScreen / Defender** の警告が出ることがある |
+| Bun | ✅ | ✅ | ✅ 上に同じ |
+| Deno 2.x | ✅ | ✅ | ✅ 上に同じ |
+| Cloudflare Pages（WASM） | ✅ `zigpix-wasm` | ✅ `zigpix-wasm` | ✅ `zigpix-wasm`（ネイティブ DLL ではなく WASM） |
+| Cloudflare Workers | ❌（CPU 制限により非対応）| — | — |
+
+**Windows 補足**: 多くの環境では既に入っているが、**VC++ 再頒布可能パッケージ (x64)** が無いと `libpict.dll` の読み込みに失敗することがある。WSL2 では Linux 列のバイナリが使われる。全体計画は **`docs/windows-rollout-plan.md`**。
 
 ## ライセンス
 

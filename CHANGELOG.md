@@ -7,6 +7,28 @@
 
 （次パッチ以降の差分をここに書く）
 
+## [0.2.0] - 2026-04-16
+
+### 追加
+
+- **Windows x64（ネイティブ）**: `zigpix-win32-x64` optional 同梱の **`libpict.dll`**（MSVC 静的 libavif / libaom、`zig build lib-windows -Davif=static`）。CI（`build-native.yml` の `build-windows-x64`）で Bun / Node / Deno の FFI・E2Eおよび **`llvm-readobj` / `llvm-objdump` による exports・依存 DLL ゲート**。
+- **ローダー**: `js/src/index.ts` / `index.deno.ts` で `win32` + `x64` を解決（`ZIGPIX_LIB` → `zig-out/windows-x86_64/libpict.dll` → optional）。
+
+### 変更
+
+- **ルート `zigpix` と既存 optional**（`zigpix-darwin-arm64` / `zigpix-linux-x64`）の **バージョンを 0.2.0 に揃えた**（ネイティブバイナリは各 CI artifact で置き換えてから publish すること）。
+
+### 互換性・環境
+
+- **Windows 10 以降 x64** をネイティブ対象とする（Node engines `>=18` と整合）。**WSL2** 上では引き続き Linux 用 `.so` が使われる。
+- **Windows ARM64**（`zigpix-win32-arm64`）用 npm パッケージは **本リリースでは未同梱**（計画は `docs/windows-rollout-plan.md` §4 M3）。x64 のみ先に出す方針。
+- **Visual C++ 再頒布可能パッケージ (x64)** が無い環境では DLL ロードに失敗することがある（ビルドは `/MD` + ランタイム依存）。不足時は Microsoft 提供の **VC++ Redistributable x64** を入れる。
+- **SmartScreen / Defender**: 未署名の `libpict.dll` を初回取得する際に警告が出る場合がある。
+
+### zigpix-wasm
+
+- 本リリースでは **必須ではない**（ネイティブのみ上げる場合は `wasm/` を触らずに Phase 2 をスキップ）。`zigpix-wasm` のバージョンを合わせる場合は **`wasm/package.json`** と **`wasm/CHANGELOG.md`** を別途更新してから publish。
+
 ## [0.1.5] - 2026-04-15
 
 ### ドキュメント

@@ -29,7 +29,7 @@ import { createRequire } from "module";
 //
 // 解決順（リリース初期: リポジトリ内のビルド成果物を優先し、古い optional より新シンボルを使いやすくする）:
 //   1. 環境変数 ZIGPIX_LIB（存在するファイルパスのみ）
-//   2. このモジュールからの相対 ../../zig-out/lib/libpict.{dylib,so}（zig build lib 済みなら）
+//   2. このモジュールからの相対 ../../zig-out/lib/libpict.{dylib,so} または zig-out/windows-x86_64/libpict.dll（zig build 済みなら）
 //   3. optionalDependency zigpix-<platform>-<arch> 内の libpict
 //
 // 本番 npm のみの環境では 2 が無いので 3 が使われる。プラットフォームパッケージは新 lib で再 publish すること。
@@ -38,14 +38,14 @@ function resolveLibPath(): string {
   const plat = platform();
   const cpu = arch();
 
-  if (plat !== "darwin" && plat !== "linux") {
-    throw new Error(`zigpix: unsupported platform: ${plat} (supported: darwin, linux)`);
+  if (plat !== "darwin" && plat !== "linux" && plat !== "win32") {
+    throw new Error(`zigpix: unsupported platform: ${plat} (supported: darwin, linux, win32)`);
   }
   if (cpu !== "arm64" && cpu !== "x64") {
     throw new Error(`zigpix: unsupported architecture: ${cpu} (supported: arm64, x64)`);
   }
 
-  const ext = plat === "darwin" ? "dylib" : "so";
+  const ext = plat === "darwin" ? "dylib" : plat === "win32" ? "dll" : "so";
   const pkgName = `zigpix-${plat}-${cpu}`;
 
   const fromEnv = process.env.ZIGPIX_LIB?.trim();
@@ -54,7 +54,10 @@ function resolveLibPath(): string {
   }
 
   const __dirname = dirname(fileURLToPath(import.meta.url));
-  const zigOut = join(__dirname, `../../zig-out/lib/libpict.${ext}`);
+  const zigOut =
+    plat === "win32"
+      ? join(__dirname, "../../zig-out/windows-x86_64/libpict.dll")
+      : join(__dirname, `../../zig-out/lib/libpict.${ext}`);
   if (existsSync(zigOut)) {
     return zigOut;
   }

@@ -3,7 +3,9 @@ name: Build native binaries
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - "feat/**" # feature で push しただけでも CI（Windows 含む）を回す
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -184,3 +186,103 @@ jobs:
         with:
           name: libpict-darwin-arm64
           path: npm/zigpix-darwin-arm64/
+
+  # ── Windows x64 (MSVC) ────────────────────────────────────────────────────
+  build-windows-x64:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Enable MSVC + Windows SDK (x64)
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install Zig 0.13.0
+        uses: mlugg/setup-zig@v1
+        with:
+          version: 0.13.0
+
+      - name: Install Ninja and NASM
+        run: choco install ninja nasm -y --no-progress
+
+      - name: Add NASM to PATH
+        run: echo "/c/Program Files/NASM" >> "$GITHUB_PATH"
+
+      - name: Build libavif (static) — libaom via FetchContent
+        run: |
+          mkdir -p build/libavif && cd build/libavif
+          cmake ../../vendor/libavif -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL \
+            -DCMAKE_INSTALL_PREFIX=../../build/libavif-install \
+            -DAVIF_CODEC_AOM=LOCAL \
+            -DAVIF_CODEC_DAV1D=OFF \
+            -DAVIF_BUILD_TESTS=OFF \
+            -DAVIF_BUILD_APPS=OFF \
+            -DAVIF_LIBYUV=OFF \
+            -DBUILD_SHARED_LIBS=OFF
+          ninja
+          ninja install
+
+      - name: Build libpict.dll (static avif)
+        run: zig build lib-windows -Doptimize=ReleaseFast -Davif=static
+
+      - name: Verify libpict.dll (dumpbin exports + no avif/aom DLL deps)
+        run: bash scripts/ci-verify-libpict-windows.sh
+
+      - name: List static libaom outputs (debug)
+        if: failure()
+        run: ls -la build/libavif/_deps/libaom-build/ || true
+
+      - name: Install Node.js deps
+        run: npm install
+
+      - name: Build JS wrapper (js/dist/)
+        run: npm run build
+
+      - name: Overlay zig-out DLL for tests
+        run: |
+          mkdir -p node_modules/zigpix-win32-x64
+          cp npm/zigpix-win32-x64/package.json node_modules/zigpix-win32-x64/
+          cp zig-out/windows-x86_64/libpict.dll node_modules/zigpix-win32-x64/libpict.dll
+
+      - name: Run FFI tests (Bun)
+        uses: oven-sh/setup-bun@v2
+      - run: bun run test/ffi/test.ts
+
+      - name: Run FFI tests (Node.js / koffi)
+        run: npx tsx test/ffi/test.node.ts
+
+      - name: Install Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Run FFI tests (Deno)
+        run: deno run --allow-read --allow-ffi --allow-env test/ffi/test.deno.ts
+
+      - name: Run E2E tests (Node.js)
+        run: npx tsx test/e2e/e2e.node.ts
+
+      - name: Run E2E tests (Bun)
+        run: bun run test/e2e/e2e.node.ts
+
+      - name: Run E2E tests (Deno)
+        run: deno run --allow-read --allow-ffi --allow-env test/e2e/e2e.deno.ts
+
+      - name: Stage npm package files
+        run: |
+          cp zig-out/windows-x86_64/libpict.dll npm/zigpix-win32-x64/
+          cp LICENSE THIRD_PARTY_LICENSES npm/zigpix-win32-x64/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libpict-win32-x64
+          path: npm/zigpix-win32-x64/
