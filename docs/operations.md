@@ -187,6 +187,9 @@ cd ../..
 
 # 2) libpict.dll（AVIF 静的）
 zig build lib-windows -Doptimize=ReleaseFast -Davif=static
+
+# 3) dumpbin で exports / 動的依存のゲート（CI と同じ）
+bash scripts/ci-verify-libpict-windows.sh
 ```
 
 成果物: **`zig-out/windows-x86_64/libpict.dll`**（Unix の `zig-out/lib/` とはパスが異なる）。

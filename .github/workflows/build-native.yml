@@ -233,6 +233,9 @@ jobs:
       - name: Build libpict.dll (static avif)
         run: zig build lib-windows -Doptimize=ReleaseFast -Davif=static
 
+      - name: Verify libpict.dll (dumpbin exports + no avif/aom DLL deps)
+        run: bash scripts/ci-verify-libpict-windows.sh
+
       - name: List static libaom outputs (debug)
         if: failure()
         run: ls -la build/libavif/_deps/libaom-build/ || true
