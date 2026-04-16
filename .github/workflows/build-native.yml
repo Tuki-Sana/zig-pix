@@ -324,6 +324,9 @@ jobs:
           cmake --build . --config Release --parallel
           cmake --build . --config Release --target install
 
+      - name: Flatten avif.lib / aom.lib paths for Zig (VS multi-config)
+        run: bash scripts/ci-normalize-libavif-msvc-libs.sh
+
       - name: Install Zig 0.13.0
         uses: mlugg/setup-zig@v1
         with:

@@ -136,7 +136,7 @@
 
 1. **`runs-on: windows-11-arm`**（公開リポ向け GitHub Hosted）。**`ilammy/msvc-dev-cmd@v1`**（`arch: arm64`）で MSVC + SDK。  
 2. **`actions/setup-node@v4`**（`architecture: arm64`）— ランナー既定の Node が **x64（WoW 報告）**のままだと **`process.arch` が `x64`** になり、**aarch64 の `libpict.dll` を koffi でロードできない**（`actions/partner-runner-images#117`）。ネイティブ arm64 Node を PATH 先頭に置く。  
-3. **CMake（libavif）** — **`Visual Studio 17 2022` + `-A ARM64`** で静的ビルド（`cmake --build --config Release`）。**Ninja + `-DCMAKE_VS_PLATFORM_NAME=ARM64`** だけでは **x64 の .lib** が混ざり、**ARM64 の Node/Python で `libpict.dll` を読むと WinError 193** になることがある。ビルドツリーは **`build/libavif`**（`build.zig` の `aom.lib` パスと一致）。  
+3. **CMake（libavif）** — **`Visual Studio 17 2022` + `-A ARM64`** で静的ビルド（`cmake --build --config Release`）。**Ninja + `-DCMAKE_VS_PLATFORM_NAME=ARM64`** だけでは **x64 の .lib** が混ざり、**ARM64 の Node/Python で `libpict.dll` を読むと WinError 193** になることがある。ビルドツリーは **`build/libavif`**（`build.zig` の `aom.lib` パスと一致）。**VS マルチコンフィグ**では `avif.lib` / `aom.lib` が **`lib/Release/`** 等に付くため、**`scripts/ci-normalize-libavif-msvc-libs.sh`** で **`build/libavif-install/lib/avif.lib`** と **`build/libavif/_deps/libaom-build/aom.lib`** に揃える。  
 4. **`vendor/libavif`** を x64 ジョブと同型の CMake オプションで静的インストール（`build/libavif-install/`）。  
 5. **`zig build lib-windows-arm64 -Doptimize=ReleaseFast -Davif=static`** → **`zig-out/windows-aarch64/libpict.dll`**。  
 6. **`scripts/ci-verify-libpict-windows.sh zig-out/windows-aarch64/libpict.dll`** で exports / DLL 依存を検証。  
@@ -158,6 +158,7 @@
 | **Node/koffi** が **`libpict.dll` を開けない**／**`process.arch` が `x64`** | **`windows-11-arm` が AMD64 を誤報**し既定 Node が x64 のことがある | **`actions/setup-node` の `architecture: arm64`**。テスト・ローダーは **`RUNNER_ARCH === 'ARM64'`** で **`windows-aarch64`** を解決（`partner-runner-images#117`） |
 | **`Failed to load shared library: The operation completed successfully`**（koffi） | 旧 koffi の **Windows での `GetLastError` / 依存 DLL 探索**の不具合や **SEHOP** との相互作用 | ルート **`koffi` を ^2.16 系**に上げる（changelog: 2.6.9 DLL ディレクトリ探索、2.6.10 GetLastError、2.8.5/2.8.7 load・SEHOP 等）。CI では **Python `ctypes.WinDLL`** で DLL 単体のロード可否を別途確認 |
 | **Python `ctypes` / WinError 193**（`%1 is not a valid Win32 application`） | **DLL が AMD64 PE** のまま **ARM64 プロセス**で読んでいる（CMake が x64 用 `aom.lib` を生成した等） | CI では **`-G "Visual Studio 17 2022" -A ARM64`** で libavif をビルド（`build-native.yml`）。成果物は **`llvm-readobj --file-headers` で Machine が ARM64** であることを確認 |
+| **`zig build lib-windows-arm64` が即失敗**（.lib が無い等） | **VS マルチコンフィグ**で `avif.lib` が **`lib/Release/`** にあり、`build.zig` の **`lib/avif.lib`** と不一致 | **`scripts/ci-normalize-libavif-msvc-libs.sh`** を CMake install の直後に実行 |
 
 ---
 

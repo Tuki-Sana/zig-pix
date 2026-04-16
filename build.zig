@@ -847,6 +847,8 @@ fn addLibwebp(b: *std.Build, artifact: *std.Build.Step.Compile) void {
 // ── addLibAvifStatic ─────────────────────────────────────────────────────────
 // 事前ビルド済みの静的ライブラリを使用する。
 // VPS / CI での事前ビルド手順:
+//   Windows で Visual Studio ジェネレータを使う場合、install 後に
+//   scripts/ci-normalize-libavif-msvc-libs.sh で avif.lib / aom.lib を下記フラットパスへ揃える。
 //   mkdir -p build/libavif && cd build/libavif
 //   cmake ../../vendor/libavif -G Ninja -DCMAKE_BUILD_TYPE=Release \
 //     -DCMAKE_INSTALL_PREFIX=../../build/libavif-install \
