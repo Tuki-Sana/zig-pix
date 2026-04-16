@@ -336,6 +336,14 @@ jobs:
         if: failure()
         run: ls -la build/libavif/_deps/libaom-build/ || true
 
+      # windows-11-arm では PROCESSOR_ARCHITECTURE / process.arch が x64 を返すことがある
+      # （actions/partner-runner-images#117）。ネイティブ arm64 Node + koffi で aarch64 DLL をロードする。
+      - name: Setup Node.js (arm64)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          architecture: arm64
+
       - name: Install Node.js deps
         run: npm install
 
@@ -347,6 +355,9 @@ jobs:
           mkdir -p node_modules/zigpix-win32-arm64
           cp npm/zigpix-win32-arm64/package.json node_modules/zigpix-win32-arm64/
           cp zig-out/windows-aarch64/libpict.dll node_modules/zigpix-win32-arm64/libpict.dll
+
+      - name: Log Node arch (WoA CI sanity)
+        run: node -p "[process.arch, process.platform, process.execPath].join(' ')"
 
       # Bun Windows ARM64 は現状 bun:ffi（dlopen）が無効 —「TinyCC is disabled」。
       # FFI は Node（koffi）+ Deno で網羅。Bun が WoA で FFI 対応したらこのジョブに戻す。

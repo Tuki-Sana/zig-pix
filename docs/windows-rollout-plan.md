@@ -135,12 +135,13 @@
 ### 3.3 CI・成果物パス（ARM64、`build-windows-arm64`）
 
 1. **`runs-on: windows-11-arm`**（公開リポ向け GitHub Hosted）。**`ilammy/msvc-dev-cmd@v1`**（`arch: arm64`）で MSVC + SDK。  
-2. **CMake / Ninja** — `windows-11-arm` イメージに同梱。**NASM は不要**（x86 向け libaom 用のため x64 ジョブのみ Chocolatey で導入）。  
-3. **`vendor/libavif`** を x64 ジョブと同型の CMake オプションで静的インストール（`build/libavif-install/`）。  
-4. **`zig build lib-windows-arm64 -Doptimize=ReleaseFast -Davif=static`** → **`zig-out/windows-aarch64/libpict.dll`**。  
-5. **`scripts/ci-verify-libpict-windows.sh zig-out/windows-aarch64/libpict.dll`** で exports / DLL 依存を検証。  
-6. **FFI / E2E**: **Node（koffi）+ Deno** を実行。**Bun** は Windows ARM64 公式ビルドで **`bun:ffi`（`dlopen`）が無効**（「TinyCC is disabled」）のため **CI ではスキップ**（`build-windows-arm64`）。x64 ジョブでは従来どおり Bun も実行。  
-7. **artifact** `libpict-win32-arm64`。
+2. **`actions/setup-node@v4`**（`architecture: arm64`）— ランナー既定の Node が **x64（WoW 報告）**のままだと **`process.arch` が `x64`** になり、**aarch64 の `libpict.dll` を koffi でロードできない**（`actions/partner-runner-images#117`）。ネイティブ arm64 Node を PATH 先頭に置く。  
+3. **CMake / Ninja** — `windows-11-arm` イメージに同梱。**NASM は不要**（x86 向け libaom 用のため x64 ジョブのみ Chocolatey で導入）。  
+4. **`vendor/libavif`** を x64 ジョブと同型の CMake オプションで静的インストール（`build/libavif-install/`）。  
+5. **`zig build lib-windows-arm64 -Doptimize=ReleaseFast -Davif=static`** → **`zig-out/windows-aarch64/libpict.dll`**。  
+6. **`scripts/ci-verify-libpict-windows.sh zig-out/windows-aarch64/libpict.dll`** で exports / DLL 依存を検証。  
+7. **FFI / E2E**: **Node（koffi）+ Deno** を実行。**Bun** は Windows ARM64 公式ビルドで **`bun:ffi`（`dlopen`）が無効**（「TinyCC is disabled」）のため **CI ではスキップ**（`build-windows-arm64`）。x64 ジョブでは従来どおり Bun も実行。ローダー／テストは **`RUNNER_ARCH === 'ARM64'`** を補助条件に **`zig-out/windows-aarch64`** を解決（`process.arch` 誤報対策）。  
+8. **artifact** `libpict-win32-arm64`。
 
 **クロスコンパイル代替**: `windows-latest` 上で `aarch64-windows-msvc` を組むことも可能だが、CMake / libaom / Zig の組み合わせが重いため、**ゲート A はネイティブ ARM ランナー**を正とする。
 
@@ -150,10 +151,11 @@
 |------|-----------|------------|
 | `libcxxabi` サブコンパイル失敗、`vcruntime_typeinfo` 二重定義 | Windows で `linkLibCpp()` + MSVC ヘッダ混在 | `msvcprt` + CMake `/MD` 明示（§3.1） |
 | `cp: ... libpict.dll: No such file` | Zig 既定出力が `pict.dll` のみ | `dest_sub_path` で `libpict.dll` インストール |
-| Bun `dlopen` **126**、`zig-out/lib/libpict.dll` | FFI テストが Unix パス固定 | `test/ffi/test.ts` / `test.node.ts` で **`win32` + `os.arch()`** に応じ **`windows-x86_64` / `windows-aarch64`** の `libpict.dll` |
+| Bun `dlopen` **126**、`zig-out/lib/libpict.dll` | FFI テストが Unix パス固定 | `test/ffi/test.ts` / `test.node.ts` で **`win32` + `os.arch()`** および CI 時 **`RUNNER_ARCH === 'ARM64'`** で **`windows-x86_64` / `windows-aarch64`** の `libpict.dll` |
 | libwebp SIMD 系コンパイルエラー（x86） | ターゲット ISA フラグ | `build.zig` で x86 WebP 用 **`-msse2 -mssse3 -msse4.1`** 等、`windows_x64_msvc` の **`cpu_model`** 調整（ログ駆動） |
 | CI の verify が **exit 157** などで即死（ログに `ok:` が無い） | Git Bash から **`dumpbin` を stdout リダイレクト**すると異常終了することがある | **`llvm-readobj` / `llvm-objdump` 主経路**（`scripts/ci-verify-libpict-windows.sh` 実装） |
 | **`build-windows-arm64`** で Bun が **`dlopen() is not available`** | Bun Windows ARM64 で **FFI / TinyCC がビルドから無効** | CI では **Bun の FFI/E2E をスキップ**し、**Node + Deno** で網羅（Bun が WoA で FFI 対応したらワークフローに戻す） |
+| **Node/koffi** が **`libpict.dll` を開けない**／**`process.arch` が `x64`** | **`windows-11-arm` が AMD64 を誤報**し既定 Node が x64 のことがある | **`actions/setup-node` の `architecture: arm64`**。テスト・ローダーは **`RUNNER_ARCH === 'ARM64'`** で **`windows-aarch64`** を解決（`partner-runner-images#117`） |
 
 ---
 

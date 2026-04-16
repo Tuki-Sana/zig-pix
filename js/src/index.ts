@@ -54,7 +54,10 @@ function resolveLibPath(): string {
   }
 
   const __dirname = dirname(fileURLToPath(import.meta.url));
-  const winZigOutDir = plat === "win32" && cpu === "arm64" ? "windows-aarch64" : "windows-x86_64";
+  // GitHub windows-11-arm では process.arch が x64 のままのことがある（runner イメージの誤報）。
+  const winHostArm64Ci = process.env.RUNNER_ARCH === "ARM64";
+  const winZigOutDir =
+    plat === "win32" && (cpu === "arm64" || winHostArm64Ci) ? "windows-aarch64" : "windows-x86_64";
   const zigOut =
     plat === "win32"
       ? join(__dirname, "../../zig-out", winZigOutDir, "libpict.dll")

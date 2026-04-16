@@ -17,7 +17,9 @@ import { arch } from "node:os";
 
 const repoRoot = join(import.meta.dir, "..", "..");
 const winZigOutDir =
-  process.platform === "win32" && arch() === "arm64" ? "windows-aarch64" : "windows-x86_64";
+  process.platform === "win32" && (arch() === "arm64" || process.env.RUNNER_ARCH === "ARM64")
+    ? "windows-aarch64"
+    : "windows-x86_64";
 const LIB_PATH =
   process.platform === "win32"
     ? join(repoRoot, "zig-out", winZigOutDir, "libpict.dll")

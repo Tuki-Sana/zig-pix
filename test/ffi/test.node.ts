@@ -19,7 +19,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(__dirname, "..", "..");
 const suffix = platform() === "darwin" ? "dylib" : platform() === "win32" ? "dll" : "so";
 const winZigOutDir =
-  platform() === "win32" && arch() === "arm64" ? "windows-aarch64" : "windows-x86_64";
+  platform() === "win32" && (arch() === "arm64" || process.env.RUNNER_ARCH === "ARM64")
+    ? "windows-aarch64"
+    : "windows-x86_64";
 const LIB_PATH =
   platform() === "win32"
     ? join(repoRoot, "zig-out", winZigOutDir, "libpict.dll")
