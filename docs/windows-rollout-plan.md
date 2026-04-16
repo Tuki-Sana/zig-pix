@@ -2,7 +2,7 @@
 
 **ブランチ**: `feat/windows-native-avif`（`main` マージ前はここで作業）  
 **リリース目標バージョン**: **0.2.0**（Windows 対応を含む変更をまとめて上げる）  
-**文書改訂**: **1.2**（最終調整: 目次、optional 一覧、参照・用語の明確化）  
+**文書改訂**: **1.3**（Windows x64 CI 緑化に合わせた実装メモ・チェックリスト反映）  
 **最終更新**: 2026-04-16
 
 ---
@@ -22,6 +22,7 @@
 2. サポート境界（OS・ランタイム）  
 3. 技術方針（実装の柱）  
 3.1. `build.zig` 実装メモ  
+3.2. CI・成果物パス（x64 実装の正）  
 4. マイルストーンとチェックリスト  
 5. 完了の定義（0.2.0 を出す条件）  
 6. リスクと切り戻し  
@@ -115,7 +116,29 @@
 |------|------|
 | **CRT の一貫性** | CMake 側で MSVC ランタイムを固定する（例: `CMAKE_MSVC_RUNTIME_LIBRARY` で **静的**または **動的**を明示）し、Zig 側のターゲット **`abi` が `.msvc`** であることとリンク方針を揃える。**CMake の `.lib` と Zig のオブジェクトでランタイムが食い違う**とリンク・実行時に落ちやすい。 |
 | **libjpeg-turbo の x86_64 SIMD（NASM）** | `build.zig` から NASM を直接叩くのが重い場合は、**最初は非 SIMD（C のみ）で Windows x64 を通し**、後続タスク（**M1.5** 等）で **NASM を CI に入れてパスを通し**、SIMD を有効化する段階導入も可（パフォーマンスは後追い）。 |
-| **C++（AOM）** | libavif / AOM 経由で **C++ ランタイム**が必要になることがある。Zig では `linkLibCpp()` を試し、足りなければ **不足シンボルに応じて** `linkSystemLibrary` 等で補う（ログ駆動）。 |
+| **C++（AOM）** | libavif / AOM 経由で **C++ ランタイム**が必要になる。**Windows + `ilammy/msvc-dev-cmd` では `linkLibCpp()` を使わない** — Zig 同梱の libc++abi と MSVC の `vcruntime_*.h` が衝突しサブコンパイルが落ちる。静的 `aom.lib` は MSVC でビルド済みのため **`linkSystemLibrary("msvcprt")`** と **`linkLibC()`** で揃え、CMake 側は **`CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL`（/MD）** で Zig の MSVC ターゲットと一致させる。Unix 向けは従来どおり（必要なら pthread / m 等）。 |
+| **DLL のファイル名** | Zig の COFF 出力は **`pict.dll`**（`lib` 接頭辞なし）。ローダー・npm・ドキュメントは **`libpict.dll`** で統一するため、`addInstallArtifact` の **`dest_sub_path = "libpict.dll"`** で `zig-out/windows-x86_64/` にインストールする。 |
+
+### 3.2 CI・成果物パス（x64 実装の正）
+
+参照実装: **`.github/workflows/build-native.yml`** のジョブ **`build-windows-x64`**。
+
+1. **`ilammy/msvc-dev-cmd@v1`**（`arch: x64`）で MSVC + Windows SDK を有効化する。  
+2. **Ninja / NASM**（Chocolatey）— libaom / libjpeg-turbo x86_64 SIMD 用。  
+3. **`vendor/libavif`** を CMake + Ninja で **静的インストール**（`build/libavif-install/`）。Windows ジョブでは **`-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL`** を付与。  
+4. **`zig build lib-windows -Doptimize=ReleaseFast -Davif=static`** — 成果物のインストール先は **`zig-out/windows-x86_64/libpict.dll`**（上記 `dest_sub_path`）。  
+5. **`npm install` → `npm run build`** のあと、**`node_modules/zigpix-win32-x64/libpict.dll`** を `zig-out` で上書き（optional 未公開時と同型の overlay）。  
+6. **FFI / E2E**: Bun・Node（koffi）・Deno が **`test/ffi/*` / `test/e2e/*`** を実行。Bun/Node のテストは **`zig-out/windows-x86_64/libpict.dll`** を参照する（`zig-out/lib/` は Unix 用）。  
+7. **artifact** `libpict-win32-x64` に `npm/zigpix-win32-x64/` を載せる。
+
+**トラブルシュート（実際に踏んだもの）**
+
+| 症状 | 原因の例 | 対処の方向 |
+|------|-----------|------------|
+| `libcxxabi` サブコンパイル失敗、`vcruntime_typeinfo` 二重定義 | Windows で `linkLibCpp()` + MSVC ヘッダ混在 | `msvcprt` + CMake `/MD` 明示（§3.1） |
+| `cp: ... libpict.dll: No such file` | Zig 既定出力が `pict.dll` のみ | `dest_sub_path` で `libpict.dll` インストール |
+| Bun `dlopen` **126**、`zig-out/lib/libpict.dll` | FFI テストが Unix パス固定 | `test/ffi/test.ts` / `test.node.ts` で **`win32` → `zig-out/windows-x86_64/libpict.dll`** |
+| libwebp SIMD 系コンパイルエラー（x86） | ターゲット ISA フラグ | `build.zig` で x86 WebP 用 **`-msse2 -mssse3 -msse4.1`** 等、`windows_x64_msvc` の **`cpu_model`** 調整（ログ駆動） |
 
 ---
 
@@ -128,9 +151,9 @@
 
 ### M1 — Windows x64: ビルドのみ通す
 
-- [ ] `build.zig`: ターゲット **`x86_64-windows-msvc`** で **DLL が生成**する  
-- [ ] C スタック（JPEG/PNG/WebP）が **リンクまで通る**  
-- [ ] **静的 AVIF** を CMake → Zig で **x64 ジョブ内**で通す  
+- [x] `build.zig`: ターゲット **`x86_64-windows-msvc`** で **DLL が生成**する（インストール名 **`libpict.dll`**、`zig-out/windows-x86_64/`）  
+- [x] C スタック（JPEG/PNG/WebP）が **リンクまで通る**  
+- [x] **静的 AVIF** を CMake → Zig で **x64 ジョブ内**で通す（`zig build lib-windows -Davif=static`）  
 - [ ] **シンボルエクスポート検証**: `dumpbin /exports libpict.dll`（または LLVM の `llvm-nm` 等）で、**Node / Bun / Deno / koffi が呼ぶ C ABI** が外部に露出していることを **CI ゲート**に含める（必須シンボル一覧は **`js/src/index.ts` / `index.deno.ts` の FFI 宣言**および **`test/ffi/`** から機械的に取れるようにしてもよい）  
 
 ### M1.5 —（任意・段階導入）x64 SIMD / NASM
@@ -140,13 +163,13 @@
 
 ### M2 — Windows x64: CI とテスト
 
-- [ ] `.github/workflows/build-native.yml`（または専用 workflow）に **`windows-latest`** ジョブ追加  
-- [ ] **libavif 静的ビルド** → `zig build lib`（Windows 用ステップ名は実装に合わせる）  
-- [ ] **動的に libavif/libaom が付いていない**ことの検証（Linux ジョブの `ldd` 相当を Windows 用に）  
-- [ ] **Node** FFI / E2E  
-- [ ] **Bun** FFI / E2E  
-- [ ] **Deno** FFI / E2E  
-- [ ] artifact 例: `libpict-win32-x64` → `npm/zigpix-win32-x64/` 相当をアップロード  
+- [x] `.github/workflows/build-native.yml` に **`windows-latest`** ジョブ（**`build-windows-x64`**）追加済み  
+- [x] **libavif 静的ビルド** → **`zig build lib-windows -Davif=static`**（Linux ジョブの `zig build lib` とは別ステップ名）  
+- [ ] **動的に libavif/libaom が付いていない**ことの検証（Linux ジョブの `ldd` 相当を **Windows 用コマンドで CI ゲート化** — 未実装なら M1 の dumpbin と合わせて追加）  
+- [x] **Node** FFI / E2E  
+- [x] **Bun** FFI / E2E  
+- [x] **Deno** FFI / E2E  
+- [x] artifact **`libpict-win32-x64`** → `npm/zigpix-win32-x64/` をアップロード  
 - [ ] **手動確認（推奨）**: ユーザー名など **非 ASCII を含むパス**上の `libpict.dll` を `ZIGPIX_LIB` で指定し、**Node / Bun / Deno からロード・実行**できること（日本語環境での退避用）  
 
 ### M3 — Windows ARM64（二段階ゲート）
@@ -219,3 +242,4 @@
 | 2026-04-16 | 初版（要件: Win10+、x64+ARM64、AVIF 初回同梱、Bun/Deno 必須、0.2.0、WSL2） |
 | 2026-04-16 | 1.1: M1/M2 検証強化、M1.5、M3 二段階ゲート、M6 UX、CRT スパイク、§3.1 `build.zig` メモ、§5 完了定義・§6 リスク更新 |
 | 2026-04-16 | **1.2（最終調整）**: §0 概要・想定読者、目次、§1.2 DLL ファイル名、§3 optional 4 件の表、M1 ターゲット名確定・シンボル一覧のヒント、M3 artifact 分離、M5 publish 順の具体列挙、§5 の「4 件」明記、§7 に `build-native.yml` リンク、§1.3 の §2 参照を §2.1 に |
+| 2026-04-16 | **1.3**: §3.1 を実装に合わせ更新（C++/COFF ファイル名）、**§3.2**（CI 手順・成果物パス・トラブルシュート表）、M1/M2 の **x64 到達項目を [x]**、未達（dumpbin・依存 DLL 検証・手動パス）を明示 |

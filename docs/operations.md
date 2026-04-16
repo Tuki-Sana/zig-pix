@@ -129,11 +129,14 @@ Install libavif development package and pkg-config
 | `zig build` | Mac | ✅ | CLI dev binary |
 | `zig build lib` | Mac | ✅ | Mac 向け libpict.dylib |
 | `zig build lib` | VPS | ✅ | Linux 向け libpict.so **← AVIF FFI はここ** |
+| `zig build lib-windows` | **Windows x64 + MSVC**（または同等の SDK 環境） | ✅ | Windows 向け **`zig-out/windows-x86_64/libpict.dll`**（**事前に** `vendor/libavif` を CMake で `build/libavif-install/` へ静的ビルド） |
 | `zig build lib-linux` | Mac | ❌ | Linux 向けクロスコンパイル (AVIF 無効) |
 | `zig build linux` | Mac | ❌ | Linux CLI クロスコンパイル |
 
 **重要**: Linux で AVIF FFI を使う場合は、必ず VPS 上で `zig build lib` をネイティブ実行すること。  
 Mac からのクロスコンパイル (`zig build lib-linux`) では AVIF は無効のままとなる。
+
+**Windows**: `build.zig` では **`-Davif=system` は未対応**（エラー終了）。Windows では常に **静的 libavif + AOM**（上記 CMake 手順）を前提に **`zig build lib-windows -Davif=static`** とする。手順の正本は **`docs/windows-rollout-plan.md` §3.2** と **`.github/workflows/build-native.yml` の `build-windows-x64`**。
 
 ## 7) FFI テスト手順
 
@@ -162,6 +165,38 @@ bun run test/ffi/test.ts
 - `ldd` に `libavif.so.*` が表示される
 - `All 8 tests passed.` など（Case E が null ではなく ftyp 検証を通ること）
 
+### Windows（x64・MSVC）
+
+前提: **Visual Studio Build Tools** または VS が入り、`ilammy/msvc-dev-cmd` 相当で **x64 ネイティブ**の開発者コマンドプロンプトが使えること。Ninja / NASM を PATH に通す（CI は Chocolatey 参照）。
+
+```bash
+# 1) libavif + libaom を静的インストール（リポジトリルートから）
+mkdir -p build/libavif && cd build/libavif
+cmake ../../vendor/libavif -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL \
+  -DCMAKE_INSTALL_PREFIX=../../build/libavif-install \
+  -DAVIF_CODEC_AOM=LOCAL \
+  -DAVIF_CODEC_DAV1D=OFF \
+  -DAVIF_BUILD_TESTS=OFF \
+  -DAVIF_BUILD_APPS=OFF \
+  -DAVIF_LIBYUV=OFF \
+  -DBUILD_SHARED_LIBS=OFF
+ninja && ninja install
+cd ../..
+
+# 2) libpict.dll（AVIF 静的）
+zig build lib-windows -Doptimize=ReleaseFast -Davif=static
+```
+
+成果物: **`zig-out/windows-x86_64/libpict.dll`**（Unix の `zig-out/lib/` とはパスが異なる）。
+
+```bash
+# FFI（Bun / Node はこの DLL を参照するよう test 側が分岐済み）
+bun run test/ffi/test.ts
+npx tsx test/ffi/test.node.ts
+```
+
 ### lib-linux の回帰確認 (Mac 上)
 
 ```bash
@@ -181,7 +216,7 @@ zig llvm-nm -D zig-out/linux-x86_64/libpict.so | grep pict_encode_avif
 
 - ルート `package.json` の `version` と `optionalDependencies`、`npm/zigpix-*/package.json` の `version` を **同一パッチ**に揃える。
 - `libpict.dylib` / `libpict.so` は **git 管理外**。publish 直前に **build-native の緑 run** から `npm/zigpix-*/` へ置く。
-- **publish 順**: `zigpix-darwin-arm64` → `zigpix-linux-x64` → ルート **`zigpix`**（逆にすると `npm install zigpix` が失敗し得る）。
+- **publish 順**: `zigpix-darwin-arm64` → `zigpix-linux-x64` → **`zigpix-win32-x64`**（および ARM64 追加後はその次）→ ルート **`zigpix`**（逆にすると `npm install zigpix` が失敗し得る）。
 
 ### ローカル / CI で「今ビルドした lib」を使う
 
@@ -199,6 +234,11 @@ cp zig-out/lib/libpict.dylib node_modules/zigpix-darwin-arm64/libpict.dylib
 mkdir -p node_modules/zigpix-linux-x64
 cp npm/zigpix-linux-x64/package.json node_modules/zigpix-linux-x64/
 cp zig-out/lib/libpict.so node_modules/zigpix-linux-x64/libpict.so
+
+# Windows x64 の例（FFI / E2E を optional より zig-out に合わせるとき）
+mkdir -p node_modules/zigpix-win32-x64
+cp npm/zigpix-win32-x64/package.json node_modules/zigpix-win32-x64/
+cp zig-out/windows-x86_64/libpict.dll node_modules/zigpix-win32-x64/libpict.dll
 ```
 
 既に optional が入っている環境では、`mkdir` / `package.json` のコピーは省略して **`libpict` の `cp` だけ**でもよい。
