@@ -376,7 +376,7 @@ jobs:
       # ctypes で読むと WinError 193 になる。ロード検証は **Zig が生成する同ターゲットのネイティブ exe**
       #（`zig run`）で行う（scripts/verify_win_dll_load.zig）。
       - name: Verify libpict.dll loads (Zig LoadLibraryW; not Python ctypes on WoA)
-        run: zig run scripts/verify_win_dll_load.zig -- zig-out/windows-aarch64/libpict.dll
+        run: zig run -target aarch64-windows-msvc scripts/verify_win_dll_load.zig -- "$(pwd)/zig-out/windows-aarch64/libpict.dll"
 
       # Bun Windows ARM64 は現状 bun:ffi（dlopen）が無効 —「TinyCC is disabled」。
       # FFI は Node（koffi）+ Deno で網羅。Bun が WoA で FFI 対応したらこのジョブに戻す。
