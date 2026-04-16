@@ -304,17 +304,15 @@ jobs:
         with:
           arch: arm64
 
-      - name: Install Zig 0.13.0
-        uses: mlugg/setup-zig@v1
-        with:
-          version: 0.13.0
-
-      # windows-11-arm イメージに CMake / Ninja が同梱。NASM は x86 libaom 用のため不要。
-      - name: Build libavif (static) — libaom via FetchContent
+      # libavif は **Visual Studio 17 2022 + -A ARM64** でビルド（Ninja+MSVC だと x64 .lib になりやすい）。
+      # ビルドツリーは **build/libavif** のまま（build.zig の `build/libavif/_deps/.../aom.lib` と整合）。
+      - name: Build libavif (static) — libaom via FetchContent (VS ARM64)
         run: |
+          rm -rf build/libavif-install build/libavif
           mkdir -p build/libavif && cd build/libavif
-          cmake ../../vendor/libavif -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
+          cmake ../../vendor/libavif \
+            -G "Visual Studio 17 2022" \
+            -A ARM64 \
             -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL \
             -DCMAKE_INSTALL_PREFIX=../../build/libavif-install \
             -DAVIF_CODEC_AOM=LOCAL \
@@ -323,11 +321,19 @@ jobs:
             -DAVIF_BUILD_APPS=OFF \
             -DAVIF_LIBYUV=OFF \
             -DBUILD_SHARED_LIBS=OFF
-          ninja
-          ninja install
+          cmake --build . --config Release --parallel
+          cmake --build . --config Release --target install
+
+      - name: Install Zig 0.13.0
+        uses: mlugg/setup-zig@v1
+        with:
+          version: 0.13.0
 
       - name: Build libpict.dll (static avif, aarch64)
         run: zig build lib-windows-arm64 -Doptimize=ReleaseFast -Davif=static
+
+      - name: Verify libpict.dll PE machine (expect ARM64 / 0xAA64)
+        run: llvm-readobj --file-headers zig-out/windows-aarch64/libpict.dll | grep -i machine
 
       - name: Verify libpict.dll (exports + no avif/aom DLL deps)
         run: bash scripts/ci-verify-libpict-windows.sh zig-out/windows-aarch64/libpict.dll
