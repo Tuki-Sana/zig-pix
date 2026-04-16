@@ -616,7 +616,11 @@ fn addLibjpegTurbo(b: *std.Build, artifact: *std.Build.Step.Compile) void {
 
     // ── aarch64 NEON SIMD ─────────────────────────────────────────────────
     // x86_64 の SIMD は NASM 必須 (.asm ファイル) のため今フェーズはスキップ。
-    // aarch64 は GAS 形式 .S + C intrinsic ファイルのみで構成されるため clang で処理可能。
+    //
+    // vendor/libjpeg-turbo/simd/CMakeLists.txt と整合: **NEON_INTRINSICS=1** のときは
+    // jccolor-neon.c / jidctint-neon.c 等の **C intrinsics のみ**で、`jsimd_neon.S` は
+    // **含めない**（.S と .c が jsimd_*_neon を二重定義し、Windows の lld-link で失敗する）。
+    // `-DNEON_INTRINSICS` で jsimd.c が asm 専用分岐（slowld3 等）を参照しないようにする。
     //
     // コンパイル単位に含めないファイル (別ファイルから #include されるフラグメント):
     //   simd/arm/jcgryext-neon.c  → jcgray-neon.c に #include される
@@ -647,7 +651,7 @@ fn addLibjpegTurbo(b: *std.Build, artifact: *std.Build.Step.Compile) void {
         artifact.addIncludePath(neon_compat.getDirectory());
         artifact.step.dependOn(&neon_compat.step);
 
-        const neon_flags = &.{ "-std=c11", "-D_DEFAULT_SOURCE" };
+        const neon_flags = &.{ "-std=c11", "-D_DEFAULT_SOURCE", "-DNEON_INTRINSICS" };
 
         // 共有 ARM NEON C ファイル (aarch32/aarch64 両対応; __aarch64__ で内部分岐)
         artifact.addCSourceFiles(.{
@@ -670,14 +674,6 @@ fn addLibjpegTurbo(b: *std.Build, artifact: *std.Build.Step.Compile) void {
                 "vendor/libjpeg-turbo/simd/arm/aarch64/jchuff-neon.c",
             },
             .flags = neon_flags,
-        });
-
-        // NEON アセンブリ (GAS 形式、clang が -x assembler-with-cpp でプリプロセス→アセンブル)
-        artifact.addCSourceFiles(.{
-            .files = &.{
-                "vendor/libjpeg-turbo/simd/arm/aarch64/jsimd_neon.S",
-            },
-            .flags = &.{ "-x", "assembler-with-cpp" },
         });
     }
 }
