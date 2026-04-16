@@ -1,0 +1,13 @@
+{
+  "name": "zigpix-win32-x64",
+  "version": "0.1.5",
+  "description": "zigpix native binary for Windows x64 (MSVC)",
+  "os": ["win32"],
+  "cpu": ["x64"],
+  "files": ["libpict.dll", "LICENSE", "THIRD_PARTY_LICENSES"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Tuki-Sana/zig-pix.git"
+  }
+}

@@ -10,6 +10,7 @@ const std = @import("std");
 //   zig build wasm                   → WebAssembly / WASI (実験用; ネイティブ decode/ICC/WebP パス非搭載。npm zigpix-wasm は別系統)
 //   zig build lib                    → Shared library for FFI (.dylib / .so)
 //   zig build lib-linux              → Linux x86_64 shared library for FFI (.so)
+//   zig build lib-windows            → Windows x86_64 MSVC shared library for FFI (.dll, AVIF=static)
 //   zig build test                   → Unit tests (Zig + C ライブラリ、JPEG/PNG/WebP パス含む)
 //   zig build bench                  → Benchmarks (ReleaseFast)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -53,6 +54,12 @@ pub fn build(b: *std.Build) void {
         .abi = .gnu,
         // VPS は AVX2 非保証のため x86_64_v2 に留める。SIMD は Phase 3 で有効化。
         .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64_v2 },
+    });
+
+    const windows_x64_msvc = b.resolveTargetQuery(.{
+        .cpu_arch = .x86_64,
+        .os_tag = .windows,
+        .abi = .msvc,
     });
 
     // Phase 5 で Cloudflare Workers 向けに wasm32-freestanding に切り替える。
@@ -180,6 +187,32 @@ pub fn build(b: *std.Build) void {
         .dest_dir = .{ .override = .{ .custom = "linux-x86_64" } },
     }).step);
 
+    // ── Shared library Windows x86_64 MSVC (FFI: CI windows-latest) ───────────
+    // 事前ビルド: build/libavif で CMake (Ninja) + ninja install（build-native.yml と同型）。
+    // 静的 .lib をリンク。pthread / m は Unix のみ。
+    const ffi_lib_win = b.addSharedLibrary(.{
+        .name = "pict",
+        .root_source_file = b.path("src/root.zig"),
+        .target = windows_x64_msvc,
+        .optimize = .ReleaseFast,
+    });
+    ffi_lib_win.root_module.addImport("pict", pict_mod);
+    ffi_lib_win.root_module.addOptions("build_options", build_options);
+    ffi_lib_win.root_module.addOptions("avif_options", avif_options);
+    addCLibraries(b, ffi_lib_win);
+    // Windows は pkg-config 前提の system モードが使えないため、常に事前ビルドの静的 .lib をリンクする。
+    // CI / 手元とも `zig build lib-windows` は `-Davif=static` と CMake 済みの build/libavif-install を前提にする。
+    addLibAvifStatic(b, ffi_lib_win);
+    ffi_lib_win.addCSourceFiles(.{
+        .files = &.{"src/c/avif_encode.c"},
+        .flags = &.{"-std=c11"},
+    });
+
+    const lib_windows_step = b.step("lib-windows", "Build shared library for Windows x86_64 MSVC (.dll); libavif is always statically linked (run CMake first; CI uses -Davif=static for consistency)");
+    lib_windows_step.dependOn(&b.addInstallArtifact(ffi_lib_win, .{
+        .dest_dir = .{ .override = .{ .custom = "windows-x86_64" } },
+    }).step);
+
     // ── Unit tests ────────────────────────────────────────────────────────────
     // C ライブラリ (libjpeg-turbo 等) も同時にリンクして JPEG デコードパスを検証する。
     const unit_tests = b.addTest(.{
@@ -286,8 +319,8 @@ fn addLibpng(b: *std.Build, artifact: *std.Build.Step.Compile) void {
     // other:   両方 0 (SIMD なし)
     const core_flags: []const []const u8 = switch (arch) {
         .aarch64 => &.{ "-std=c11", "-DPNG_ARM_NEON_OPT=2", "-DPNG_INTEL_SSE_OPT=0" },
-        .x86_64  => &.{ "-std=c11", "-DPNG_ARM_NEON_OPT=0", "-DPNG_INTEL_SSE_OPT=1" },
-        else     => &.{ "-std=c11", "-DPNG_ARM_NEON_OPT=0", "-DPNG_INTEL_SSE_OPT=0" },
+        .x86_64 => &.{ "-std=c11", "-DPNG_ARM_NEON_OPT=0", "-DPNG_INTEL_SSE_OPT=1" },
+        else => &.{ "-std=c11", "-DPNG_ARM_NEON_OPT=0", "-DPNG_INTEL_SSE_OPT=0" },
     };
     artifact.addCSourceFiles(.{
         .files = &.{
@@ -325,7 +358,10 @@ fn addLibpng(b: *std.Build, artifact: *std.Build.Step.Compile) void {
                 "vendor/libpng/intel/intel_init.c",
                 "vendor/libpng/intel/filter_sse2_intrinsics.c",
             },
-            .flags = &.{ "-std=c11", "-DPNG_INTEL_SSE_OPT=1", "-msse2" },
+            .flags = if (artifact.rootModuleTarget().os.tag == .windows)
+                &.{ "-std=c11", "-DPNG_INTEL_SSE_OPT=1" }
+            else
+                &.{ "-std=c11", "-DPNG_INTEL_SSE_OPT=1", "-msse2" },
         }),
         else => {},
     }
@@ -337,6 +373,7 @@ fn addLibpng(b: *std.Build, artifact: *std.Build.Step.Compile) void {
 // その他 : WITH_SIMD=null。
 fn addLibjpegTurbo(b: *std.Build, artifact: *std.Build.Step.Compile) void {
     const arch = artifact.rootModuleTarget().cpu.arch;
+    const os_tag = artifact.rootModuleTarget().os.tag;
     const with_simd: ?i64 = if (arch == .aarch64) 1 else null;
 
     const jconfig_h = b.addConfigHeader(.{
@@ -363,14 +400,14 @@ fn addLibjpegTurbo(b: *std.Build, artifact: *std.Build.Step.Compile) void {
         .include_path = "jconfigint.h",
     }, .{
         .BUILD = "20240101",
-        .HIDDEN = "__attribute__((visibility(\"hidden\")))",
-        .INLINE = "inline __attribute__((always_inline))",
-        .THREAD_LOCAL = "_Thread_local",
+        .HIDDEN = if (os_tag == .windows) "" else "__attribute__((visibility(\"hidden\")))",
+        .INLINE = if (os_tag == .windows) "__forceinline" else "inline __attribute__((always_inline))",
+        .THREAD_LOCAL = if (os_tag == .windows) "__declspec(thread)" else "_Thread_local",
         .CMAKE_PROJECT_NAME = "libjpeg-turbo",
         .VERSION = "3.0.4",
         .SIZE_T = @as(i64, 8),
-        .HAVE_BUILTIN_CTZL = @as(i64, 1),
-        .HAVE_INTRIN_H = null,
+        .HAVE_BUILTIN_CTZL = if (os_tag == .windows) null else @as(i64, 1),
+        .HAVE_INTRIN_H = if (os_tag == .windows) @as(i64, 1) else null,
         .C_ARITH_CODING_SUPPORTED = @as(i64, 1),
         .D_ARITH_CODING_SUPPORTED = @as(i64, 1),
         .WITH_SIMD = with_simd,
@@ -734,6 +771,10 @@ fn addLibwebp(b: *std.Build, artifact: *std.Build.Step.Compile) void {
         });
     } else if (arch == .x86_64) {
         // x86_64: SSE2 は x86_64 ABI の保証範囲。SSE4.1 は x86_64_v2 以上で利用可能。
+        const webp_x86_flags: []const []const u8 = if (artifact.rootModuleTarget().os.tag == .windows)
+            &.{"-std=c11"}
+        else
+            &.{ "-std=c11", "-msse2", "-msse4.1" };
         artifact.addCSourceFiles(.{
             .files = &.{
                 "vendor/libwebp/src/dsp/alpha_processing_sse2.c",
@@ -756,7 +797,7 @@ fn addLibwebp(b: *std.Build, artifact: *std.Build.Step.Compile) void {
                 "vendor/libwebp/src/dsp/yuv_sse41.c",
                 "vendor/libwebp/sharpyuv/sharpyuv_sse2.c",
             },
-            .flags = &.{ "-std=c11", "-msse2", "-msse4.1" },
+            .flags = webp_x86_flags,
         });
     }
     // wasm32: SIMD は Phase 5 で追加。スカラー baseline のみで動作する。
@@ -786,17 +827,37 @@ fn addLibwebp(b: *std.Build, artifact: *std.Build.Step.Compile) void {
 //   build/libavif-install/lib/libavif.a
 //   build/libavif/_deps/libaom-build/libaom.a  (FetchContent による libaom ビルド)
 fn addLibAvifStatic(b: *std.Build, artifact: *std.Build.Step.Compile) void {
+    const target = artifact.rootModuleTarget();
     artifact.addIncludePath(b.path("build/libavif-install/include"));
-    artifact.addObjectFile(b.path("build/libavif-install/lib/libavif.a"));
-    artifact.addObjectFile(b.path("build/libavif/_deps/libaom-build/libaom.a"));
-    artifact.linkSystemLibrary("pthread");
-    artifact.linkSystemLibrary("m");
+    if (target.os.tag == .windows) {
+        // MSVC + Ninja: CMake は静的 import ライブラリを .lib で出力する。
+        // libaom は FetchContent 先のビルドツリー直下に aom.lib（名前は CMake 設定依存）。
+        artifact.addObjectFile(b.path("build/libavif-install/lib/libavif.lib"));
+        artifact.addObjectFile(b.path("build/libavif/_deps/libaom-build/aom.lib"));
+        artifact.linkLibCpp();
+        // libaom / 周辺が参照し得る Windows システムライブラリ
+        artifact.linkSystemLibrary("ws2_32");
+        artifact.linkSystemLibrary("bcrypt");
+    } else {
+        artifact.addObjectFile(b.path("build/libavif-install/lib/libavif.a"));
+        artifact.addObjectFile(b.path("build/libavif/_deps/libaom-build/libaom.a"));
+        artifact.linkSystemLibrary("pthread");
+        artifact.linkSystemLibrary("m");
+    }
     artifact.linkLibC();
 }
 
 fn addLibAvifSystem(b: *std.Build, artifact: *std.Build.Step.Compile) void {
     const target_os = artifact.rootModuleTarget().os.tag;
-    const is_macos  = target_os == .macos;
+    const is_macos = target_os == .macos;
+
+    if (target_os == .windows) {
+        std.io.getStdErr().writer().print(
+            "error: -Davif=system is not supported on Windows. Use -Davif=static (prebuild libavif with CMake; see docs/windows-rollout-plan.md).\n",
+            .{},
+        ) catch {};
+        std.process.exit(1);
+    }
 
     const pkg_cflags = b.runAllowFail(
         &.{ "pkg-config", "--cflags-only-I", "libavif" },
@@ -813,8 +874,8 @@ fn addLibAvifSystem(b: *std.Build, artifact: *std.Build.Step.Compile) void {
     if (!is_macos and pkg_cflags == null) {
         std.io.getStdErr().writer().print(
             "error: libavif headers not found for target {s}.\n" ++
-            "  Install libavif development package and pkg-config\n" ++
-            "  (e.g. apt install libavif-dev pkg-config)\n",
+                "  Install libavif development package and pkg-config\n" ++
+                "  (e.g. apt install libavif-dev pkg-config)\n",
             .{@tagName(target_os)},
         ) catch {};
         std.process.exit(1);
@@ -822,8 +883,8 @@ fn addLibAvifSystem(b: *std.Build, artifact: *std.Build.Step.Compile) void {
     if (!is_macos and pkg_libs == null) {
         std.io.getStdErr().writer().print(
             "error: libavif library path not found for target {s}.\n" ++
-            "  Install libavif development package and pkg-config\n" ++
-            "  (e.g. apt install libavif-dev pkg-config)\n",
+                "  Install libavif development package and pkg-config\n" ++
+                "  (e.g. apt install libavif-dev pkg-config)\n",
             .{@tagName(target_os)},
         ) catch {};
         std.process.exit(1);
