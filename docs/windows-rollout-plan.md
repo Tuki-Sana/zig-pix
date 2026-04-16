@@ -3,7 +3,7 @@
 **ブランチ**: **`main`**（大きな Windows 作業はブランチを切って PR する。旧 **`feat/windows-native-avif`** はマージ済み）  
 **リリース目標バージョン**: **0.2.0**（Windows 対応を含む変更をまとめて上げる）  
 **文書改訂**: **1.6**（`zigpix` / `zigpix-wasm` のセマバ方針を `release.md` 等へ集約、ブランチ表記の更新）  
-**最終更新**: 2026-04-16
+**最終更新**: 2026-04-17
 
 ---
 
@@ -87,15 +87,15 @@
    - **ARM64**: ネイティブ ARM ランナーが使える場合はそれに加え、**x64 ランナー上の `aarch64-windows-msvc` クロスビルド（ビルドのみ）**を補助線とする（詳細は §4 M3）。  
    - Zig バージョンは既存 CI に合わせる（現状 **0.13.0**）。
 
-3. **npm（0.2.0 で揃える optional）**  
-   ルート `zigpix` の **`optionalDependencies`** は **同一バージョン 0.2.0** で揃える。**0.2.0 のリリース時点**では次の **3 サブパッケージ**（`zigpix-win32-arm64` は npm 未整備のため **後続**）。
+3. **npm optional — バージョン分割**  
+   **0.2.0** で揃えるのは **3 サブパッケージ**。`zigpix-win32-arm64` は **FFI/E2E 実行が未保証**のため **0.2.1** で別途追加（M4 参照）。
 
-   | パッケージ | 中身（代表） |
-   |------------|----------------|
-   | `zigpix-darwin-arm64` | `libpict.dylib` |
-   | `zigpix-linux-x64` | `libpict.so` |
-   | `zigpix-win32-x64` | `libpict.dll`（x64） |
-   | `zigpix-win32-arm64` | `libpict.dll`（ARM64）— **次版以降で optional 追加予定** |
+   | パッケージ | 中身（代表） | バージョン |
+   |------------|----------------|-----------|
+   | `zigpix-darwin-arm64` | `libpict.dylib` | 0.2.0 |
+   | `zigpix-linux-x64` | `libpict.so` | 0.2.0 |
+   | `zigpix-win32-x64` | `libpict.dll`（x64） | 0.2.0 |
+   | `zigpix-win32-arm64` | `libpict.dll`（ARM64）| **0.2.1**（DLL ビルドのみ CI 済み・FFI テストは既知制約でスキップ中。Zig ARM64EC 対応後に昇格） |
 
    各 `npm/zigpix-*/package.json` の **`os` / `cpu`** と `files` を npm の規約に合わせて維持・追加する。
 
@@ -140,7 +140,9 @@
 4. **`vendor/libavif`** を x64 ジョブと同型の CMake オプションで静的インストール（`build/libavif-install/`）。  
 5. **`zig build lib-windows-arm64 -Doptimize=ReleaseFast -Davif=static`** → **`zig-out/windows-aarch64/libpict.dll`**。  
 6. **`scripts/ci-verify-libpict-windows.sh zig-out/windows-aarch64/libpict.dll`** で exports / DLL 依存を検証。  
-7. **FFI / E2E**: **Node（koffi）+ Deno** を実行。**Bun** は Windows ARM64 公式ビルドで **`bun:ffi`（`dlopen`）が無効**（「TinyCC is disabled」）のため **CI ではスキップ**（`build-windows-arm64`）。x64 ジョブでは従来どおり Bun も実行。ローダー／テストは **`RUNNER_ARCH === 'ARM64'`** を補助条件に **`zig-out/windows-aarch64`** を解決（`process.arch` 誤報対策）。  
+7. **FFI / E2E**: **現在すべてスキップ**（`build-windows-arm64`）。  
+   - **Bun**: WoA 公式ビルドで `bun:ffi`（`dlopen`）が無効のため CI スキップ。  
+   - **Node（koffi）/ Deno**: `windows-11-arm` ランナーの実行ファイルが **ARM64EC**（Machine 0xA641）であり、Zig 0.13.0 が生成する **純 ARM64**（Machine 0xAA64）の `libpict.dll` をロードできない（OS 仕様。§4 M3 ゲート B 参照）。Zig が `aarch64_ec-windows-msvc` をサポートした時点でスキップを解除する。  
 8. **artifact** `libpict-win32-arm64`。
 
 **クロスコンパイル代替**: `windows-latest` 上で `aarch64-windows-msvc` を組むことも可能だが、CMake / libaom / Zig の組み合わせが重いため、**ゲート A はネイティブ ARM ランナー**を正とする。
@@ -158,7 +160,7 @@
 | **Node/koffi** が **`libpict.dll` を開けない**／**`process.arch` が `x64`** | **`windows-11-arm` が AMD64 を誤報**し既定 Node が x64 のことがある | **`actions/setup-node` の `architecture: arm64`**。テスト・ローダーは **`RUNNER_ARCH === 'ARM64'`** で **`windows-aarch64`** を解決（`partner-runner-images#117`） |
 | **`Failed to load shared library: The operation completed successfully`**（koffi） | 旧 koffi の **Windows での `GetLastError` / 依存 DLL 探索**の不具合や **SEHOP** との相互作用 | ルート **`koffi` を ^2.16 系**に上げる（changelog: 2.6.9 DLL ディレクトリ探索、2.6.10 GetLastError、2.8.5/2.8.7 load・SEHOP 等）。**x64 ジョブ**では必要なら **Python `ctypes.WinDLL`** で DLL 単体のロード可否を確認 |
 | **Python `ctypes` / WinError 193**（`%1 is not a valid Win32 application`） | **DLL が AMD64 PE** のまま **純 ARM64 プロセス**で読んでいる（CMake が x64 用 `aom.lib` を生成した等） | CI では **`-G "Visual Studio 17 2022" -A ARM64`** で libavif をビルド（`build-native.yml`）。成果物は **`llvm-readobj --file-headers` で Machine が ARM64（0xAA64）** であることを確認 |
-| **同じく WinError 193** だが **PE Machine は既に ARM64（0xAA64）** | **ローダーが ARM64EC**（例: `hostedtoolcache` の **Python 3.13 arm64**）で、**純 ARM64 DLL を `LoadLibrary` できない**（[ARM64EC と純 ARM64の互換性](https://learn.microsoft.com/en-us/windows/arm/arm64ec)） | **`build-windows-arm64`** の DLL ロード検証は **`zig run scripts/verify_win_dll_load.zig`**（Zig が生成する **純 ARM64** の一時 exe が `LoadLibraryW` する）。診断時は **`llvm-readobj --file-headers` を `python.exe` にも当て** Machine が **ARM64EC（0xA641）** か確認 |
+| **同じく WinError 193** だが **PE Machine は既に ARM64（0xAA64）** | **ローダー自身が ARM64EC**（`windows-11-arm` の node.exe / python.exe 等、Machine 0xA641）で、**純 ARM64 DLL を `LoadLibrary` できない**（OS 仕様。[ARM64EC と純 ARM64 の互換性](https://learn.microsoft.com/en-us/windows/arm/arm64ec)） | **`build-windows-arm64`** の DLL ロード検証は **`scripts/verify_win_dll_load.zig`** を純 ARM64 exe としてビルド済み（`zig build-exe -target aarch64-windows-gnu`）し `./verify_win_dll_load.exe` で実行。**test 1**（`LOAD_LIBRARY_AS_DATAFILE`）成功 = DLL は valid な ARM64 PE。**test 2**（full load）は MSVC ARM64X CRT の非互換で失敗するが exit 0（既知制約）。Node / Deno FFI テストは同理由でスキップ（§3.3 item 7・§4 M3）。Zig が `aarch64_ec-windows-msvc` に対応したら ARM64EC DLL を生成して解消できる |
 | **`zig build lib-windows-arm64` が即失敗**（.lib が無い等） | **VS マルチコンフィグ**で `avif.lib` が **`lib/Release/`** にあり、`build.zig` の **`lib/avif.lib`** と不一致 | **`scripts/ci-normalize-libavif-msvc-libs.sh`** を CMake install の直後に実行 |
 
 ---
