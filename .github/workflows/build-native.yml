@@ -392,11 +392,15 @@ jobs:
       #   vc_redist インストーラは System32 書き込みが失敗することがある（権限・既存 x64 版の混在等）。
       #   確実な方法は VCToolsRedistDir の arm64\Microsoft.VC143.CRT から直接コピーすること。
       #
-      #   コピー先:
-      #     1. zig-out/windows-aarch64/  → LOAD_WITH_ALTERED_SEARCH_PATH が DLL 自身のディレクトリを最初に探索
-      #     2. repo root (CWD)            → koffi / Node / Deno の LoadLibrary が CWD を探索
-      #     3. PATH 先頭                  → 上記で解決できない場合のフォールバック（x64 mingw より先にヒット）
-      - name: Stage ARM64 CRT (vcruntime140.dll → DLL dir + CWD + PATH)
+      #   LoadLibrary の依存 DLL 探索順序（Windows 標準）:
+      #     1. アプリ（node.exe）のディレクトリ  ← 最優先・最も確実
+      #     2. System32
+      #     3. Windows ディレクトリ
+      #     4. CWD
+      #     5. PATH
+      #   koffi は LOAD_WITH_ALTERED_SEARCH_PATH を使わないため、DLL 自身のディレクトリは
+      #   検索されない。node.exe のディレクトリに置くのが唯一確実な方法。
+      - name: Stage ARM64 CRT (vcruntime140.dll → node dir + DLL dir + CWD)
         shell: pwsh
         run: |
           $crt = Join-Path $env:VCToolsRedistDir "arm64\Microsoft.VC143.CRT"
@@ -405,14 +409,16 @@ jobs:
             exit 1
           }
           Write-Host "ARM64 CRT dir: $crt"
-          # 1. LOAD_WITH_ALTERED_SEARCH_PATH 用: DLL 自身のディレクトリ
+          # 1. node.exe のディレクトリ（LoadLibrary 探索 #1: アプリディレクトリ）← 最も確実
+          $nodeDir = Split-Path (Get-Command node.exe).Source -Parent
+          Write-Host "node.exe dir: $nodeDir"
+          Copy-Item "$crt\*.dll" $nodeDir -Force
+          # 2. LOAD_WITH_ALTERED_SEARCH_PATH 用: DLL 自身のディレクトリ（verify ステップ用）
           Copy-Item "$crt\*.dll" zig-out\windows-aarch64\ -Force
-          # 2. koffi/Node/Deno 用: CWD (repo root) — 通常の LoadLibrary が探索
+          # 3. CWD (repo root): LoadLibrary 探索 #4 として念のため
           Copy-Item "$crt\*.dll" . -Force
-          # 3. PATH 先頭に ARM64 CRT を追加（mingw64 等の x64 版より先に見つかるよう）
-          "Path=$crt;$env:PATH" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          Write-Host "Staged. vcruntime DLLs in zig-out/windows-aarch64/:"
-          Get-ChildItem zig-out\windows-aarch64\ -Filter "vcruntime*.dll" | Format-Table Name, Length
+          Write-Host "Staged. vcruntime DLLs:"
+          Get-ChildItem $nodeDir -Filter "vcruntime*.dll" | Format-Table Name, Length
 
       - name: Verify libpict.dll loads (Zig LoadLibraryW; not Python ctypes on WoA)
         continue-on-error: true
