@@ -348,9 +348,10 @@ jobs:
           cp npm/zigpix-win32-arm64/package.json node_modules/zigpix-win32-arm64/
           cp zig-out/windows-aarch64/libpict.dll node_modules/zigpix-win32-arm64/libpict.dll
 
-      - name: Run FFI tests (Bun)
-        uses: oven-sh/setup-bun@v2
-      - run: bun run test/ffi/test.ts
+      # Bun Windows ARM64 は現状 bun:ffi（dlopen）が無効 —「TinyCC is disabled」。
+      # FFI は Node（koffi）+ Deno で網羅。Bun が WoA で FFI 対応したらこのジョブに戻す。
+      - name: Run FFI tests (Bun) — skipped on Windows ARM64
+        run: echo "::notice title=Bun FFI::Skipped on windows-11-arm (bun:ffi dlopen unavailable); Node + Deno run below."
 
       - name: Run FFI tests (Node.js / koffi)
         run: npx tsx test/ffi/test.node.ts
@@ -366,8 +367,8 @@ jobs:
       - name: Run E2E tests (Node.js)
         run: npx tsx test/e2e/e2e.node.ts
 
-      - name: Run E2E tests (Bun)
-        run: bun run test/e2e/e2e.node.ts
+      - name: Run E2E tests (Bun) — skipped on Windows ARM64
+        run: echo "::notice title=Bun E2E::Skipped on windows-11-arm (same as FFI)."
 
       - name: Run E2E tests (Deno)
         run: deno run --allow-read --allow-ffi --allow-env test/e2e/e2e.deno.ts

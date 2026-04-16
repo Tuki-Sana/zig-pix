@@ -139,7 +139,7 @@
 3. **`vendor/libavif`** を x64 ジョブと同型の CMake オプションで静的インストール（`build/libavif-install/`）。  
 4. **`zig build lib-windows-arm64 -Doptimize=ReleaseFast -Davif=static`** → **`zig-out/windows-aarch64/libpict.dll`**。  
 5. **`scripts/ci-verify-libpict-windows.sh zig-out/windows-aarch64/libpict.dll`** で exports / DLL 依存を検証。  
-6. **FFI / E2E** は **`zig-out/windows-aarch64/libpict.dll`** と **`npm/zigpix-win32-arm64/`** の overlay で実行。  
+6. **FFI / E2E**: **Node（koffi）+ Deno** を実行。**Bun** は Windows ARM64 公式ビルドで **`bun:ffi`（`dlopen`）が無効**（「TinyCC is disabled」）のため **CI ではスキップ**（`build-windows-arm64`）。x64 ジョブでは従来どおり Bun も実行。  
 7. **artifact** `libpict-win32-arm64`。
 
 **クロスコンパイル代替**: `windows-latest` 上で `aarch64-windows-msvc` を組むことも可能だが、CMake / libaom / Zig の組み合わせが重いため、**ゲート A はネイティブ ARM ランナー**を正とする。
@@ -153,6 +153,7 @@
 | Bun `dlopen` **126**、`zig-out/lib/libpict.dll` | FFI テストが Unix パス固定 | `test/ffi/test.ts` / `test.node.ts` で **`win32` + `os.arch()`** に応じ **`windows-x86_64` / `windows-aarch64`** の `libpict.dll` |
 | libwebp SIMD 系コンパイルエラー（x86） | ターゲット ISA フラグ | `build.zig` で x86 WebP 用 **`-msse2 -mssse3 -msse4.1`** 等、`windows_x64_msvc` の **`cpu_model`** 調整（ログ駆動） |
 | CI の verify が **exit 157** などで即死（ログに `ok:` が無い） | Git Bash から **`dumpbin` を stdout リダイレクト**すると異常終了することがある | **`llvm-readobj` / `llvm-objdump` 主経路**（`scripts/ci-verify-libpict-windows.sh` 実装） |
+| **`build-windows-arm64`** で Bun が **`dlopen() is not available`** | Bun Windows ARM64 で **FFI / TinyCC がビルドから無効** | CI では **Bun の FFI/E2E をスキップ**し、**Node + Deno** で網羅（Bun が WoA で FFI 対応したらワークフローに戻す） |
 
 ---
 
@@ -197,7 +198,7 @@
 
 **ゲート B — 実行検証（ホスト ARM64）**
 
-- [x] **`windows-11-arm` 上**で Node / Bun / Deno の **FFI / E2E**（CI ジョブ内）  
+- [x] **`windows-11-arm` 上**で **Node + Deno** の **FFI / E2E**（CI ジョブ内）。**Bun** は WoA 公式ビルドで FFI 非対応のため CI ではスキップ（上表）  
 - [ ] **エンドユーザー実機**（Surface 等）での確認と、README / CHANGELOG での **`zigpix-win32-arm64` サポート表記**の最終文言（「CI 済み」→「実機確認済み」への格上げタイミング）  
 
 **撤退ライン**
