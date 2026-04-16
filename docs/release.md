@@ -15,7 +15,7 @@
 
 - [ ] 変更は **`main` にマージ済み**で、意図したコミットが先頭
 - [ ] **Build native binaries** が **`main` で緑**（失敗 run の artifact は使わない）
-- [ ] ルート `package.json` の `version` と `optionalDependencies`、および `npm/zigpix-*/package.json` の `version` が **同じパッチ番号**
+- [ ] ルート `package.json` の `version` と `optionalDependencies`、および `npm/zigpix-*/package.json` の `version` が **同じバージョン番号**（例: `0.2.0`）
 - [ ] **`zigpix-wasm` も上げる**なら `wasm/package.json` の `version` と **`wasm/CHANGELOG.md`** も揃えてある
 - [ ] ルート **`CHANGELOG.md`** にそのバージョンの見出しと箇条書きがある
 - [ ] 手元: **`gh` が GitHub にログイン済み**（`gh auth status`）、**`npm whoami`** が通る
@@ -43,6 +43,9 @@
 
    ```bash
    export RUN_ID=実際の数字
+
+   # 前回の展開先が残っていると、zip 展開で `file exists` になり失敗することがある
+   rm -rf /tmp/libpict-darwin-arm64 /tmp/libpict-linux-x64 /tmp/libpict-win32-x64
 
    gh run download "$RUN_ID" -n libpict-darwin-arm64 -D /tmp/libpict-darwin-arm64
    gh run download "$RUN_ID" -n libpict-linux-x64 -D /tmp/libpict-linux-x64
@@ -98,13 +101,17 @@ npm view zigpix-linux-x64 version
 npm view zigpix-win32-x64 version
 ```
 
-バージョンが意図したパッチと一致していれば Phase 1 完了。
+バージョンが意図した値と一致していれば Phase 1 完了。
+
+### 1.4 `zigpix-wasm` とのバージョン（方針）
+
+**`zigpix`（ルート + ネイティブ optional）と `zigpix-wasm` は npm 上で別パッケージ**であり、**セマンティックバージョンを揃える必要はない**。ネイティブだけ変更があるリリースでは **Phase 2 をスキップしてよい**。ブラウザ向け WASM に変更があるときだけ **`wasm/`** を更新し、Phase 2 で `zigpix-wasm` を publish する。無理に同じ番号へ揃えると、**片方だけ意味のないバンプ**が必要になりやすい。
 
 ---
 
-## Phase 2 — `zigpix-wasm`（同じリリースで上げる場合のみ）
+## Phase 2 — `zigpix-wasm`（ブラウザ用を上げる場合のみ）
 
-**スキップする場合**: ネイティブだけ上げる運用なら Phase 2 は行わない。
+**スキップする場合**: ネイティブだけ上げる運用なら Phase 2 は行わない（§1.4）。**`zigpix` のバージョンと一致させなくてよい**。
 
 ### 2.1 `wasm/dist/` を用意する（どちらか一方）
 
@@ -153,6 +160,7 @@ cd wasm && npm test && npm publish --access public && cd ..
 | **native と wasm で RUN_ID を取り違えた** | ワークフロー名で必ず切り分ける（`build-native.yml` vs `build-wasm.yml`） |
 | **`wasm/dist` が空のまま** `npm publish` | `npm pack --dry-run` で tarball に `.wasm` が入るか確認してから publish |
 | **CHANGELOG を書かずに publish** | 利用者向けに後から追記するか、次パッチで整える（理想は事前更新） |
+| **`gh run download` が `file exists` で失敗** | `/tmp/libpict-*` に前回の展開が残っている。§1.1 の **`rm -rf`** を実行してから取り直す |
 
 ---
 

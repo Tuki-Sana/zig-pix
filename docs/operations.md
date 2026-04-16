@@ -217,9 +217,10 @@ zig llvm-nm -D zig-out/linux-x86_64/libpict.so | grep pict_encode_avif
 
 ### ここだけ押さえる（詳細は release.md）
 
-- ルート `package.json` の `version` と `optionalDependencies`、`npm/zigpix-*/package.json` の `version` を **同一パッチ**に揃える。
-- `libpict.dylib` / `libpict.so` は **git 管理外**。publish 直前に **build-native の緑 run** から `npm/zigpix-*/` へ置く。
+- ルート `package.json` の `version` と `optionalDependencies`、`npm/zigpix-*/package.json` の `version` を **同一のバージョン番号**に揃える。
+- `libpict.dylib` / `libpict.so` / **`libpict.dll`** は **git 管理外**。publish 直前に **build-native の緑 run** から `npm/zigpix-*/` へ置く。
 - **publish 順**: `zigpix-darwin-arm64` → `zigpix-linux-x64` → **`zigpix-win32-x64`**（および ARM64 追加後はその次）→ ルート **`zigpix`**（逆にすると `npm install zigpix` が失敗し得る）。
+- **`zigpix-wasm`**: ルート `zigpix` / optional とは **別パッケージ・別セマバ**（`wasm/package.json`）。ネイティブの publish と**同時に上げる必要はない**。詳細は **`docs/release.md` §1.4 と Phase 2**。
 
 ### ローカル / CI で「今ビルドした lib」を使う
 

@@ -1,8 +1,8 @@
 # Windows ネイティブ対応 — 実行計画書
 
-**ブランチ**: `feat/windows-native-avif`（`main` マージ前はここで作業）  
+**ブランチ**: **`main`**（大きな Windows 作業はブランチを切って PR する。旧 **`feat/windows-native-avif`** はマージ済み）  
 **リリース目標バージョン**: **0.2.0**（Windows 対応を含む変更をまとめて上げる）  
-**文書改訂**: **1.5.1**（M1.5 チェックリストを CI / `build.zig` 実態に合わせ更新）  
+**文書改訂**: **1.6**（`zigpix` / `zigpix-wasm` のセマバ方針を `release.md` 等へ集約、ブランチ表記の更新）  
 **最終更新**: 2026-04-16
 
 ---
@@ -250,3 +250,4 @@
 | 2026-04-16 | **1.4.1**: verify スクリプトを **`llvm-readobj` / `llvm-objdump` 優先**に変更（Git Bash + `dumpbin` リダイレクトの exit 157 回避）、§3.2・トラブルシュート追記 |
 | 2026-04-16 | **1.5**: **0.2.0 リリース準備**（ルート + 3 optional の `package.json`、`CHANGELOG`、`release.md`、README 動作環境、§3 optional 表の現実合わせ、M4〜M6・§5 のチェック反映） |
 | 2026-04-16 | **1.5.1**: **§4 M1.5** を実態に合わせ分割（NASM+workflow **[x]**、libwebp x86 SIMD **[x]**、libjpeg NASM .asm は **[ ]** のまま・任意明記） |
+| 2026-04-16 | **1.6**: **`zigpix` と `zigpix-wasm` のバージョンは揃えなくてよい**旨を `docs/release.md` §1.4 / Phase 2、`docs/operations.md` §8、`docs/README.md` に追記。`gh run download` 前の **`rm -rf /tmp/libpict-*`** を `release.md` に追記。本書先頭のブランチ表記を **`main`** に更新 |
