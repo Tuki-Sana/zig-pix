@@ -424,6 +424,49 @@ jobs:
         continue-on-error: true
         run: ./verify_win_dll_load.exe zig-out/windows-aarch64/libpict.dll
 
+      # node.exe / koffi のアーキテクチャと LoadLibraryW 挙動を診断する。
+      # error 0 が続く場合: node.exe が ARM64EC（0xA641）のため純 ARM64（0xAA64）DLL を
+      # ロードできない可能性がある。ARM64EC プロセスは純 ARM64 DLL を LoadLibrary できない。
+      - name: Diagnose node.exe arch and DLL load (llvm-readobj + pwsh)
+        continue-on-error: true
+        shell: bash
+        run: |
+          echo "=== node.exe machine type ==="
+          NODE_BIN=$(which node)
+          echo "node.exe path: $NODE_BIN"
+          llvm-readobj --file-headers "$NODE_BIN" | grep -i machine || true
+
+          echo "=== vcruntime140.dll in node dir ==="
+          NODE_DIR=$(dirname "$NODE_BIN")
+          VCR="$NODE_DIR/vcruntime140.dll"
+          if [ -f "$VCR" ]; then
+            llvm-readobj --file-headers "$VCR" | grep -i machine || true
+          else
+            echo "NOT FOUND: $VCR"
+          fi
+
+          echo "=== libpict.dll imports ==="
+          llvm-readobj --coff-imports zig-out/windows-aarch64/libpict.dll | grep -i "Name:" || true
+
+      - name: Diagnose LoadLibraryW via PowerShell P/Invoke
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $src = 'using System; using System.Runtime.InteropServices;'
+          $src += 'public class WinDll {'
+          $src += '[DllImport("kernel32.dll",SetLastError=true,CharSet=CharSet.Unicode)] public static extern IntPtr LoadLibraryW(string s);'
+          $src += '[DllImport("kernel32.dll",SetLastError=true,CharSet=CharSet.Unicode)] public static extern IntPtr LoadLibraryExW(string s,IntPtr h,uint f);'
+          $src += '[DllImport("kernel32.dll")] public static extern uint GetLastError();'
+          $src += '}'
+          Add-Type -TypeDefinition $src
+          $abs = (Resolve-Path "zig-out\windows-aarch64\libpict.dll").Path
+          Write-Host "Testing LoadLibraryW on: $abs"
+          $h = [WinDll]::LoadLibraryW($abs)
+          Write-Host ("LoadLibraryW  -> 0x{0:X}  GetLastError={1}" -f $h.ToInt64(), [WinDll]::GetLastError())
+          Write-Host "Testing LoadLibraryExW(LOAD_WITH_ALTERED_SEARCH_PATH=0x8)"
+          $h2 = [WinDll]::LoadLibraryExW($abs, [IntPtr]::Zero, 0x8)
+          Write-Host ("LoadLibraryExW-> 0x{0:X}  GetLastError={1}" -f $h2.ToInt64(), [WinDll]::GetLastError())
+
       # Bun Windows ARM64 は現状 bun:ffi（dlopen）が無効 —「TinyCC is disabled」。
       # FFI は Node（koffi）+ Deno で網羅。Bun が WoA で FFI 対応したらこのジョブに戻す。
       - name: Run FFI tests (Bun) — skipped on Windows ARM64
