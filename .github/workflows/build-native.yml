@@ -386,6 +386,24 @@ jobs:
             scripts/verify_win_dll_load.zig -femit-bin=verify_win_dll_load.exe
           echo "=== loader exe machine ===" && llvm-readobj --file-headers verify_win_dll_load.exe | grep -i machine
           echo "=== libpict.dll machine ===" && llvm-readobj --file-headers zig-out/windows-aarch64/libpict.dll | grep -i machine
+          echo "=== libpict.dll imports ===" && llvm-readobj --coff-imports zig-out/windows-aarch64/libpict.dll | grep -i "^Import\|Name:" || true
+
+      # LoadLibraryW が libpict.dll の依存（vcruntime140.dll 等）を探す際の順序:
+      # 1. 呼び出し元 exe のディレクトリ（verify_win_dll_load.exe = CWD）
+      # 2. System32  3. CWD  4. PATH
+      # PATH に C:\Program Files\LLVM\bin 等の x64 vcruntime140.dll があると 193 になる。
+      # ARM64 CRT を CWD にコピーして exe ディレクトリ（=CWD）で先に見つかるようにする。
+      - name: Stage ARM64 MSVC CRT in CWD (LoadLibraryW dep search before x64 in PATH)
+        shell: pwsh
+        run: |
+          $crt = Join-Path $env:VCToolsRedistDir "arm64\Microsoft.VC143.CRT"
+          if (Test-Path $crt) {
+            Copy-Item "$crt\*.dll" .
+            Write-Host "Staged ARM64 CRT to CWD: $crt"
+            Get-ChildItem $crt
+          } else {
+            Write-Warning "CRT not found: $crt"
+          }
 
       - name: Verify libpict.dll loads (Zig LoadLibraryW; not Python ctypes on WoA)
         run: ./verify_win_dll_load.exe zig-out/windows-aarch64/libpict.dll
