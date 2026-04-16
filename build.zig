@@ -830,9 +830,9 @@ fn addLibAvifStatic(b: *std.Build, artifact: *std.Build.Step.Compile) void {
     const target = artifact.rootModuleTarget();
     artifact.addIncludePath(b.path("build/libavif-install/include"));
     if (target.os.tag == .windows) {
-        // MSVC + Ninja: CMake は静的 import ライブラリを .lib で出力する。
-        // libaom は FetchContent 先のビルドツリー直下に aom.lib（名前は CMake 設定依存）。
-        artifact.addObjectFile(b.path("build/libavif-install/lib/libavif.lib"));
+        // MSVC + Ninja: libavif の静的ターゲットは OUTPUT_NAME `avif` → **avif.lib**（libavif.lib ではない）。
+        // libaom は FetchContent 先のビルドツリーに aom.lib。
+        artifact.addObjectFile(b.path("build/libavif-install/lib/avif.lib"));
         artifact.addObjectFile(b.path("build/libavif/_deps/libaom-build/aom.lib"));
         artifact.linkLibCpp();
         // libaom / 周辺が参照し得る Windows システムライブラリ
