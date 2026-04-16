@@ -388,19 +388,20 @@ jobs:
           echo "=== libpict.dll machine ===" && llvm-readobj --file-headers zig-out/windows-aarch64/libpict.dll | grep -i machine
           echo "=== libpict.dll imports ===" && llvm-readobj --coff-imports zig-out/windows-aarch64/libpict.dll | grep -i "^Import\|Name:" || true
 
-      # LoadLibraryW が libpict.dll の依存（vcruntime140.dll 等）を探す際の順序:
-      # 1. 呼び出し元 exe のディレクトリ（verify_win_dll_load.exe = CWD）
-      # 2. System32  3. CWD  4. PATH
-      # PATH に C:\Program Files\LLVM\bin 等の x64 vcruntime140.dll があると 193 になる。
-      # ARM64 CRT を CWD にコピーして exe ディレクトリ（=CWD）で先に見つかるようにする。
-      - name: Stage ARM64 MSVC CRT in CWD (LoadLibraryW dep search before x64 in PATH)
+      # LoadLibraryExW + LOAD_WITH_ALTERED_SEARCH_PATH により DLL 自身のディレクトリが
+      # 依存 DLL の先頭検索パスになる。ARM64 CRT を DLL のディレクトリにコピーしておく。
+      # また koffi / Node の FFI テストでも libpict.dll を LoadLibrary するため、
+      # ARM64 CRT を PATH 先頭に prepend して x64 版（LLVM\bin 等）より先に解決させる。
+      - name: Stage ARM64 MSVC CRT (DLL dir + PATH prepend for koffi)
         shell: pwsh
         run: |
           $crt = Join-Path $env:VCToolsRedistDir "arm64\Microsoft.VC143.CRT"
           if (Test-Path $crt) {
-            Copy-Item "$crt\*.dll" .
-            Write-Host "Staged ARM64 CRT to CWD: $crt"
-            Get-ChildItem $crt
+            # LOAD_WITH_ALTERED_SEARCH_PATH: DLL 自身のディレクトリが先頭になる
+            Copy-Item "$crt\*.dll" zig-out\windows-aarch64\
+            # koffi / Node FFI テスト向け: PATH 先頭に prepend（GITHUB_ENV 経由）
+            "Path=$crt;$env:PATH" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            Write-Host "Staged ARM64 CRT: $crt"
           } else {
             Write-Warning "CRT not found: $crt"
           }
