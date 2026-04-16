@@ -16,8 +16,12 @@ import { dirname, join } from "path";
 import { platform } from "os";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const suffix = platform() === "darwin" ? "dylib" : "so";
-const LIB_PATH = join(__dirname, "../../zig-out/lib/libpict." + suffix);
+const repoRoot = join(__dirname, "..", "..");
+const suffix = platform() === "darwin" ? "dylib" : platform() === "win32" ? "dll" : "so";
+const LIB_PATH =
+  platform() === "win32"
+    ? join(repoRoot, "zig-out", "windows-x86_64", "libpict.dll")
+    : join(repoRoot, "zig-out", "lib", "libpict." + suffix);
 
 const lib = koffi.load(LIB_PATH);
 

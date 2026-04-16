@@ -14,7 +14,11 @@ import { dlopen, suffix, FFIType, ptr, toArrayBuffer } from "bun:ffi";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-const LIB_PATH = `${import.meta.dir}/../../zig-out/lib/libpict.${suffix}`;
+const repoRoot = join(import.meta.dir, "..", "..");
+const LIB_PATH =
+  process.platform === "win32"
+    ? join(repoRoot, "zig-out", "windows-x86_64", "libpict.dll")
+    : join(repoRoot, "zig-out", "lib", `libpict.${suffix}`);
 
 const lib = dlopen(LIB_PATH, {
   // pict_decode_v2(data, len, out_w, out_h, out_ch, out_len) -> ?[*]u8
