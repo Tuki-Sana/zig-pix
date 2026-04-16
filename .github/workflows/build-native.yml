@@ -371,9 +371,12 @@ jobs:
       # koffi は 2.8 台以降で Windows の load / GetLastError / SEHOP 周りが継続改善。古い 2.9 系で
       # 「Failed to load … The operation completed successfully」だけ出る場合は依存解決や
       # エラー伝播の不具合の可能性があるため、ルート package.json の koffi は ^2.16 を前提にする。
-      - name: Verify libpict.dll loads (Python ctypes, koffi 以外)
-        run: |
-          python -c "import ctypes, os, pathlib; p=pathlib.Path('zig-out/windows-aarch64/libpict.dll').resolve(); assert p.is_file(), p; ctypes.WinDLL(str(p)); print('WinDLL OK', p, 'bytes', p.stat().st_size)"
+      #
+      # hostedtoolcache の Python arm64 は **ARM64EC** のことがあり、**純 ARM64（0xAA64）** の DLL を
+      # ctypes で読むと WinError 193 になる。ロード検証は **Zig が生成する同ターゲットのネイティブ exe**
+      #（`zig run`）で行う（scripts/verify_win_dll_load.zig）。
+      - name: Verify libpict.dll loads (Zig LoadLibraryW; not Python ctypes on WoA)
+        run: zig run scripts/verify_win_dll_load.zig -- zig-out/windows-aarch64/libpict.dll
 
       # Bun Windows ARM64 は現状 bun:ffi（dlopen）が無効 —「TinyCC is disabled」。
       # FFI は Node（koffi）+ Deno で網羅。Bun が WoA で FFI 対応したらこのジョブに戻す。
