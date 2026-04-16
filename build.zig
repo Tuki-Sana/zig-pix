@@ -212,8 +212,10 @@ pub fn build(b: *std.Build) void {
     });
 
     const lib_windows_step = b.step("lib-windows", "Build shared library for Windows x86_64 MSVC (.dll); libavif is always statically linked (run CMake first; CI uses -Davif=static for consistency)");
+    // COFF では Zig の出力名が pict.dll（lib 接頭辞なし）。FFI / npm は libpict.dll で統一する。
     lib_windows_step.dependOn(&b.addInstallArtifact(ffi_lib_win, .{
         .dest_dir = .{ .override = .{ .custom = "windows-x86_64" } },
+        .dest_sub_path = "libpict.dll",
     }).step);
 
     // ── Unit tests ────────────────────────────────────────────────────────────
