@@ -2,7 +2,7 @@
 
 **ブランチ**: `feat/windows-native-avif`（`main` マージ前はここで作業）  
 **リリース目標バージョン**: **0.2.0**（Windows 対応を含む変更をまとめて上げる）  
-**文書改訂**: **1.5**（0.2.0 npm / リリース手順・README 反映）  
+**文書改訂**: **1.5.1**（M1.5 チェックリストを CI / `build.zig` 実態に合わせ更新）  
 **最終更新**: 2026-04-16
 
 ---
@@ -160,8 +160,9 @@
 
 ### M1.5 —（任意・段階導入）x64 SIMD / NASM
 
-- [ ] GitHub Actions の Windows x64 ジョブに **NASM をインストールし PATH を通す**手順を **workflow に明記**（`libaom` / libjpeg-turbo x86_64 SIMD 用）  
-- [ ] `build.zig` で **SIMD 有効**に切り替え、既存の品質・速度目標に支障がないか確認  
+- [x] **GitHub Actions（`build-windows-x64`）**: Chocolatey で **Ninja + NASM** を入れ、**`GITHUB_PATH` に NASM** を追加（`build-native.yml` に明記済み）。**libaom** は CMake ビルドが NASM を利用可能。  
+- [x] **libwebp（x86_64・Windows 含む）**: `build.zig` で **SSE2 / SSSE3 / SSE4.1** 用の intrinsics ソースと **`-msse2 -mssse3 -msse4.1`** を付与済み（Actions 成功時点の実装）。  
+- [ ] **libjpeg-turbo x86_64 の NASM 前提 SIMD（.asm）**を `build.zig` から有効化し、品質・ベンチで支障がないか確認（現状は x86_64 で **`WITH_SIMD` を付けず** C 実装中心。計画どおり **後追いでよい**）。  
 
 ### M2 — Windows x64: CI とテスト
 
@@ -248,3 +249,4 @@
 | 2026-04-16 | **1.4**: **`scripts/ci-verify-libpict-windows.sh`**（`dumpbin /exports` + `/dependents`）、workflow ステップ追加、§3.2 手順更新、M1 シンボル検証・M2 動的依存検証を **[x]** |
 | 2026-04-16 | **1.4.1**: verify スクリプトを **`llvm-readobj` / `llvm-objdump` 優先**に変更（Git Bash + `dumpbin` リダイレクトの exit 157 回避）、§3.2・トラブルシュート追記 |
 | 2026-04-16 | **1.5**: **0.2.0 リリース準備**（ルート + 3 optional の `package.json`、`CHANGELOG`、`release.md`、README 動作環境、§3 optional 表の現実合わせ、M4〜M6・§5 のチェック反映） |
+| 2026-04-16 | **1.5.1**: **§4 M1.5** を実態に合わせ分割（NASM+workflow **[x]**、libwebp x86 SIMD **[x]**、libjpeg NASM .asm は **[ ]** のまま・任意明記） |
