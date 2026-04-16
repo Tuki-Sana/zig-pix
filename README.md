@@ -306,13 +306,13 @@ bash scripts/mem-peak.sh
 
 | ランタイム | macOS arm64 | Linux x86_64 | Windows x64 |
 |-----------|:-----------:|:------------:|:-------------:|
-| Node.js 18+ | ✅ | ✅ | ⚠️ **CI・ソースビルドで検証済み**。npm の optional 同梱（`zigpix-win32-x64`）は **0.2.0** でルート `zigpix` に載せる予定 |
-| Bun | ✅ | ✅ | ⚠️ 上に同じ |
-| Deno 2.x | ✅ | ✅ | ⚠️ 上に同じ |
+| Node.js 18+ | ✅ | ✅ | ✅ **0.2.0** から optional **`zigpix-win32-x64`**（**Windows 10+ x64**）。初回のみ **SmartScreen / Defender** の警告が出ることがある |
+| Bun | ✅ | ✅ | ✅ 上に同じ |
+| Deno 2.x | ✅ | ✅ | ✅ 上に同じ |
 | Cloudflare Pages（WASM） | ✅ `zigpix-wasm` | ✅ `zigpix-wasm` | ✅ `zigpix-wasm`（ネイティブ DLL ではなく WASM） |
 | Cloudflare Workers | ❌（CPU 制限により非対応）| — | — |
 
-Windows のネイティブ DLL の全体計画は **`docs/windows-rollout-plan.md`** を参照。
+**Windows 補足**: 多くの環境では既に入っているが、**VC++ 再頒布可能パッケージ (x64)** が無いと `libpict.dll` の読み込みに失敗することがある。WSL2 では Linux 列のバイナリが使われる。全体計画は **`docs/windows-rollout-plan.md`**。
 
 ## ライセンス
 

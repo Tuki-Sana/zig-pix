@@ -2,7 +2,7 @@
 
 **ブランチ**: `feat/windows-native-avif`（`main` マージ前はここで作業）  
 **リリース目標バージョン**: **0.2.0**（Windows 対応を含む変更をまとめて上げる）  
-**文書改訂**: **1.4.1**（verify: LLVM 主経路、`dumpbin` はフォールバック）  
+**文書改訂**: **1.5**（0.2.0 npm / リリース手順・README 反映）  
 **最終更新**: 2026-04-16
 
 ---
@@ -87,15 +87,15 @@
    - **ARM64**: ネイティブ ARM ランナーが使える場合はそれに加え、**x64 ランナー上の `aarch64-windows-msvc` クロスビルド（ビルドのみ）**を補助線とする（詳細は §4 M3）。  
    - Zig バージョンは既存 CI に合わせる（現状 **0.13.0**）。
 
-3. **npm（0.2.0 で揃える optional 一式）**  
-   ルート `zigpix` の **`optionalDependencies`** は次の **4 サブパッケージ**を **同一バージョン 0.2.0** で揃える（既存 2 + Windows 2）:
+3. **npm（0.2.0 で揃える optional）**  
+   ルート `zigpix` の **`optionalDependencies`** は **同一バージョン 0.2.0** で揃える。**0.2.0 のリリース時点**では次の **3 サブパッケージ**（`zigpix-win32-arm64` は npm 未整備のため **後続**）。
 
    | パッケージ | 中身（代表） |
    |------------|----------------|
    | `zigpix-darwin-arm64` | `libpict.dylib` |
    | `zigpix-linux-x64` | `libpict.so` |
    | `zigpix-win32-x64` | `libpict.dll`（x64） |
-   | `zigpix-win32-arm64` | `libpict.dll`（ARM64） |
+   | `zigpix-win32-arm64` | `libpict.dll`（ARM64）— **次版以降で optional 追加予定** |
 
    各 `npm/zigpix-*/package.json` の **`os` / `cpu`** と `files` を npm の規約に合わせて維持・追加する。
 
@@ -192,20 +192,20 @@
 
 ### M4 — npm メタパッケージとバージョン
 
-- [ ] ルート `package.json`: `version` **0.2.0**、`optionalDependencies` に §3 の **4 パッケージ**を同一バージョンで記載（Windows 追加に合わせ **既存 darwin / linux も 0.2.0 にバンプ**）  
-- [ ] 各 `npm/zigpix-*/package.json` の **version 0.2.0** 揃え  
-- [ ] `CHANGELOG.md` に 0.2.0 見出し（Windows 対応・下限 OS・WSL2・ARM の実験扱いの有無）  
+- [x] ルート `package.json`: `version` **0.2.0**、`optionalDependencies` に **darwin / linux / win32-x64** を同一 **0.2.0** で記載（**`zigpix-win32-arm64` は npm 未整備のため次版以降**）  
+- [x] 各 `npm/zigpix-*/package.json`（上記 3 件）の **version 0.2.0** 揃え  
+- [x] `CHANGELOG.md` に 0.2.0 見出し（Windows x64・WSL2・ARM 未同梱・VCRedist / Defender 注記）  
 
 ### M5 — リリース手順の更新
 
-- [ ] `docs/release.md` の用語表・artifact 名・`gh run download` 例・**publish 順**に Windows 2 パッケージを追記  
-- [ ] **publish 順（原則）**: **`zigpix-darwin-arm64` → `zigpix-linux-x64` → `zigpix-win32-x64` → `zigpix-win32-arm64` → ルート `zigpix`**（optional が先にレジストリに無いと `npm install zigpix` が失敗し得るため、既存ドキュメントの精神を維持）  
+- [x] `docs/release.md` の用語表・artifact 名・`gh run download` 例・**publish 順**に **Windows x64** を追記（ARM64 はパッケージ追加後に同ファイルへ追記）  
+- [x] **publish 順（0.2.0 時点）**: **`zigpix-darwin-arm64` → `zigpix-linux-x64` → `zigpix-win32-x64` → ルート `zigpix`**（将来 **`zigpix-win32-arm64`** を出す場合は **win32-x64 の直後・ルートの直前**に挿入）  
 
 ### M6 — README / 運用（UX）
 
-- [ ] README: 対応環境（**Windows 10+ x64/ARM64**、WSL2、Node engines）  
-- [ ] **セキュリティ / UX 注記**: **未署名の `libpict.dll`** が **Windows Defender** や **SmartScreen** で警告・ブロックされる場合があること、初回のみ許可が必要なことがある旨を短く記載  
-- [ ] **VCRedist**: §3 の **CRT 静的化スパイクの結果**に応じて、**公式リンク付きで「必要」**と書くか、**「不要（静的リンク済み）」**と書くかを **どちらか一方に確定**  
+- [x] README: 動作環境表を **Windows x64 向け optional 0.2.0** に更新（**Windows 10+**、WSL2 は表下の補足）  
+- [x] **セキュリティ / UX 注記**: **SmartScreen / Defender** を動作環境表に短く記載  
+- [x] **VCRedist**: **多くの環境では既存**／不足時は **VC++ 再頒布可能パッケージ (x64)** を README・CHANGELOG に明記（`/MD` ビルドに整合）  
 
 ---
 
@@ -214,7 +214,7 @@
 1. **`main`（またはマージ予定ブランチ）**で、**Windows x64** の CI が **ビルド＋シンボル検証＋ Node/Bun/Deno テスト**まで緑（必須チェックに含める）。  
 2. **AVIF を含む**既存の FFI / E2E が **Node・Bun・Deno** で **Windows x64** 上で通る。  
 3. **Windows ARM64**: **ゲート A（クロスビルド成果物）**を満たすこと。**ゲート B（実機実行）**が同じリリースに含まれるかは CHANGELOG で明示する。ゲート B 未達なら **ARM は実験扱いまたは次リリース**（§4 M3）。  
-4. **手動リリース手順**（更新後の `docs/release.md`）に従い、**optional サブパッケージ 4 件を先に publish → 最後にルート `zigpix` 0.2.0** ができる状態。  
+4. **手動リリース手順**（更新後の `docs/release.md`）に従い、**optional サブパッケージ（0.2.0 時点は 3 件: darwin / linux / win32-x64）を先に publish → 最後にルート `zigpix` 0.2.0** ができる状態。ARM64 optional を追加するリリースでは **4 件 + ルート**に拡張する。  
 
 ---
 
@@ -247,3 +247,4 @@
 | 2026-04-16 | **1.3**: §3.1 を実装に合わせ更新（C++/COFF ファイル名）、**§3.2**（CI 手順・成果物パス・トラブルシュート表）、M1/M2 の **x64 到達項目を [x]**、未達（dumpbin・依存 DLL 検証・手動パス）を明示 |
 | 2026-04-16 | **1.4**: **`scripts/ci-verify-libpict-windows.sh`**（`dumpbin /exports` + `/dependents`）、workflow ステップ追加、§3.2 手順更新、M1 シンボル検証・M2 動的依存検証を **[x]** |
 | 2026-04-16 | **1.4.1**: verify スクリプトを **`llvm-readobj` / `llvm-objdump` 優先**に変更（Git Bash + `dumpbin` リダイレクトの exit 157 回避）、§3.2・トラブルシュート追記 |
+| 2026-04-16 | **1.5**: **0.2.0 リリース準備**（ルート + 3 optional の `package.json`、`CHANGELOG`、`release.md`、README 動作環境、§3 optional 表の現実合わせ、M4〜M6・§5 のチェック反映） |
