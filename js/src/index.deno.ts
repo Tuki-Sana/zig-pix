@@ -51,9 +51,10 @@ function resolveLibPath(): string {
   }
 
   const __dirname = dirname(fileURLToPath(import.meta.url));
+  const winZigOutDir = plat === "win32" && cpu === "arm64" ? "windows-aarch64" : "windows-x86_64";
   const zigOut =
     plat === "win32"
-      ? join(__dirname, "../../zig-out/windows-x86_64/libpict.dll")
+      ? join(__dirname, "../../zig-out", winZigOutDir, "libpict.dll")
       : join(__dirname, `../../zig-out/lib/libpict.${ext}`);
   if (existsSync(zigOut)) {
     return zigOut;

@@ -13,14 +13,16 @@ import koffi from "koffi";
 import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
-import { platform } from "os";
+import { arch, platform } from "os";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(__dirname, "..", "..");
 const suffix = platform() === "darwin" ? "dylib" : platform() === "win32" ? "dll" : "so";
+const winZigOutDir =
+  platform() === "win32" && arch() === "arm64" ? "windows-aarch64" : "windows-x86_64";
 const LIB_PATH =
   platform() === "win32"
-    ? join(repoRoot, "zig-out", "windows-x86_64", "libpict.dll")
+    ? join(repoRoot, "zig-out", winZigOutDir, "libpict.dll")
     : join(repoRoot, "zig-out", "lib", "libpict." + suffix);
 
 const lib = koffi.load(LIB_PATH);

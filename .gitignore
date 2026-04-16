@@ -13,10 +13,11 @@ node_modules/
 package-lock.json
 js/dist/
 
-# Pre-built native binaries for npm optional packages (zigpix-darwin-arm64 / zigpix-linux-x64)。
+# Pre-built native binaries for npm optional packages。
 # CI artifacts をここへコピーしてから `npm publish` する。リポジトリにはコミットしない。
 npm/*/libpict.dylib
 npm/*/libpict.so
+npm/*/libpict.dll
 
 # メンテ用のローカルメモ（リポジトリにコミットしない）
 docs/LOCAL.md

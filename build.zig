@@ -11,6 +11,7 @@ const std = @import("std");
 //   zig build lib                    → Shared library for FFI (.dylib / .so)
 //   zig build lib-linux              → Linux x86_64 shared library for FFI (.so)
 //   zig build lib-windows            → Windows x86_64 MSVC shared library for FFI (.dll, AVIF=static)
+//   zig build lib-windows-arm64      → Windows aarch64 MSVC shared library for FFI (.dll, AVIF=static)
 //   zig build test                   → Unit tests (Zig + C ライブラリ、JPEG/PNG/WebP パス含む)
 //   zig build bench                  → Benchmarks (ReleaseFast)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -63,6 +64,12 @@ pub fn build(b: *std.Build) void {
         .os_tag = .windows,
         .abi = .msvc,
         .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64_v2 },
+    });
+
+    const windows_aarch64_msvc = b.resolveTargetQuery(.{
+        .cpu_arch = .aarch64,
+        .os_tag = .windows,
+        .abi = .msvc,
     });
 
     // Phase 5 で Cloudflare Workers 向けに wasm32-freestanding に切り替える。
@@ -215,6 +222,29 @@ pub fn build(b: *std.Build) void {
     // COFF では Zig の出力名が pict.dll（lib 接頭辞なし）。FFI / npm は libpict.dll で統一する。
     lib_windows_step.dependOn(&b.addInstallArtifact(ffi_lib_win, .{
         .dest_dir = .{ .override = .{ .custom = "windows-x86_64" } },
+        .dest_sub_path = "libpict.dll",
+    }).step);
+
+    // ── Shared library Windows aarch64 MSVC (FFI: CI windows-11-arm 等) ───────
+    const ffi_lib_win_arm = b.addSharedLibrary(.{
+        .name = "pict",
+        .root_source_file = b.path("src/root.zig"),
+        .target = windows_aarch64_msvc,
+        .optimize = .ReleaseFast,
+    });
+    ffi_lib_win_arm.root_module.addImport("pict", pict_mod);
+    ffi_lib_win_arm.root_module.addOptions("build_options", build_options);
+    ffi_lib_win_arm.root_module.addOptions("avif_options", avif_options);
+    addCLibraries(b, ffi_lib_win_arm);
+    addLibAvifStatic(b, ffi_lib_win_arm);
+    ffi_lib_win_arm.addCSourceFiles(.{
+        .files = &.{"src/c/avif_encode.c"},
+        .flags = &.{"-std=c11"},
+    });
+
+    const lib_windows_arm64_step = b.step("lib-windows-arm64", "Build shared library for Windows aarch64 MSVC (.dll); libavif is always statically linked (CMake + build/libavif-install; CI uses -Davif=static)");
+    lib_windows_arm64_step.dependOn(&b.addInstallArtifact(ffi_lib_win_arm, .{
+        .dest_dir = .{ .override = .{ .custom = "windows-aarch64" } },
         .dest_sub_path = "libpict.dll",
     }).step);
 

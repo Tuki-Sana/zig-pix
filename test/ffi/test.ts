@@ -13,11 +13,14 @@
 import { dlopen, suffix, FFIType, ptr, toArrayBuffer } from "bun:ffi";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { arch } from "node:os";
 
 const repoRoot = join(import.meta.dir, "..", "..");
+const winZigOutDir =
+  process.platform === "win32" && arch() === "arm64" ? "windows-aarch64" : "windows-x86_64";
 const LIB_PATH =
   process.platform === "win32"
-    ? join(repoRoot, "zig-out", "windows-x86_64", "libpict.dll")
+    ? join(repoRoot, "zig-out", winZigOutDir, "libpict.dll")
     : join(repoRoot, "zig-out", "lib", `libpict.${suffix}`);
 
 const lib = dlopen(LIB_PATH, {

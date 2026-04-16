@@ -117,7 +117,7 @@
 | **CRT の一貫性** | CMake 側で MSVC ランタイムを固定する（例: `CMAKE_MSVC_RUNTIME_LIBRARY` で **静的**または **動的**を明示）し、Zig 側のターゲット **`abi` が `.msvc`** であることとリンク方針を揃える。**CMake の `.lib` と Zig のオブジェクトでランタイムが食い違う**とリンク・実行時に落ちやすい。 |
 | **libjpeg-turbo の x86_64 SIMD（NASM）** | `build.zig` から NASM を直接叩くのが重い場合は、**最初は非 SIMD（C のみ）で Windows x64 を通し**、後続タスク（**M1.5** 等）で **NASM を CI に入れてパスを通し**、SIMD を有効化する段階導入も可（パフォーマンスは後追い）。 |
 | **C++（AOM）** | libavif / AOM 経由で **C++ ランタイム**が必要になる。**Windows + `ilammy/msvc-dev-cmd` では `linkLibCpp()` を使わない** — Zig 同梱の libc++abi と MSVC の `vcruntime_*.h` が衝突しサブコンパイルが落ちる。静的 `aom.lib` は MSVC でビルド済みのため **`linkSystemLibrary("msvcprt")`** と **`linkLibC()`** で揃え、CMake 側は **`CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL`（/MD）** で Zig の MSVC ターゲットと一致させる。Unix 向けは従来どおり（必要なら pthread / m 等）。 |
-| **DLL のファイル名** | Zig の COFF 出力は **`pict.dll`**（`lib` 接頭辞なし）。ローダー・npm・ドキュメントは **`libpict.dll`** で統一するため、`addInstallArtifact` の **`dest_sub_path = "libpict.dll"`** で `zig-out/windows-x86_64/` にインストールする。 |
+| **DLL のファイル名** | Zig の COFF 出力は **`pict.dll`**（`lib` 接頭辞なし）。ローダー・npm・ドキュメントは **`libpict.dll`** で統一するため、`addInstallArtifact` の **`dest_sub_path = "libpict.dll"`** で **`zig-out/windows-x86_64/`**（x64）または **`zig-out/windows-aarch64/`**（ARM64）にインストールする。 |
 
 ### 3.2 CI・成果物パス（x64 実装の正）
 
@@ -132,13 +132,25 @@
 7. **FFI / E2E**: Bun・Node（koffi）・Deno が **`test/ffi/*` / `test/e2e/*`** を実行。Bun/Node のテストは **`zig-out/windows-x86_64/libpict.dll`** を参照する（`zig-out/lib/` は Unix 用）。  
 8. **artifact** `libpict-win32-x64` に `npm/zigpix-win32-x64/` を載せる。
 
+### 3.3 CI・成果物パス（ARM64、`build-windows-arm64`）
+
+1. **`runs-on: windows-11-arm`**（公開リポ向け GitHub Hosted）。**`ilammy/msvc-dev-cmd@v1`**（`arch: arm64`）で MSVC + SDK。  
+2. **CMake / Ninja** — `windows-11-arm` イメージに同梱。**NASM は不要**（x86 向け libaom 用のため x64 ジョブのみ Chocolatey で導入）。  
+3. **`vendor/libavif`** を x64 ジョブと同型の CMake オプションで静的インストール（`build/libavif-install/`）。  
+4. **`zig build lib-windows-arm64 -Doptimize=ReleaseFast -Davif=static`** → **`zig-out/windows-aarch64/libpict.dll`**。  
+5. **`scripts/ci-verify-libpict-windows.sh zig-out/windows-aarch64/libpict.dll`** で exports / DLL 依存を検証。  
+6. **FFI / E2E** は **`zig-out/windows-aarch64/libpict.dll`** と **`npm/zigpix-win32-arm64/`** の overlay で実行。  
+7. **artifact** `libpict-win32-arm64`。
+
+**クロスコンパイル代替**: `windows-latest` 上で `aarch64-windows-msvc` を組むことも可能だが、CMake / libaom / Zig の組み合わせが重いため、**ゲート A はネイティブ ARM ランナー**を正とする。
+
 **トラブルシュート（実際に踏んだもの）**
 
 | 症状 | 原因の例 | 対処の方向 |
 |------|-----------|------------|
 | `libcxxabi` サブコンパイル失敗、`vcruntime_typeinfo` 二重定義 | Windows で `linkLibCpp()` + MSVC ヘッダ混在 | `msvcprt` + CMake `/MD` 明示（§3.1） |
 | `cp: ... libpict.dll: No such file` | Zig 既定出力が `pict.dll` のみ | `dest_sub_path` で `libpict.dll` インストール |
-| Bun `dlopen` **126**、`zig-out/lib/libpict.dll` | FFI テストが Unix パス固定 | `test/ffi/test.ts` / `test.node.ts` で **`win32` → `zig-out/windows-x86_64/libpict.dll`** |
+| Bun `dlopen` **126**、`zig-out/lib/libpict.dll` | FFI テストが Unix パス固定 | `test/ffi/test.ts` / `test.node.ts` で **`win32` + `os.arch()`** に応じ **`windows-x86_64` / `windows-aarch64`** の `libpict.dll` |
 | libwebp SIMD 系コンパイルエラー（x86） | ターゲット ISA フラグ | `build.zig` で x86 WebP 用 **`-msse2 -mssse3 -msse4.1`** 等、`windows_x64_msvc` の **`cpu_model`** 調整（ログ駆動） |
 | CI の verify が **exit 157** などで即死（ログに `ok:` が無い） | Git Bash から **`dumpbin` を stdout リダイレクト**すると異常終了することがある | **`llvm-readobj` / `llvm-objdump` 主経路**（`scripts/ci-verify-libpict-windows.sh` 実装） |
 
@@ -177,30 +189,31 @@
 
 ### M3 — Windows ARM64（二段階ゲート）
 
-**ゲート A — ビルドのみ（必須にしやすい）**
+**ゲート A — ビルド＋検証成果物**
 
-- [ ] **`windows-latest`（x64）** 上で **`aarch64-windows-msvc` 向けクロスコンパイル**し、ARM64 用 **`libpict.dll`** を **成果物として生成**できること（ファイル名は x64 と同じでもよいが **artifact はアーキ別に分離**する）  
-- [ ] `npm/zigpix-win32-arm64/` 用バイナリを artifact に載せる運用を定義  
+- [x] **`build.zig`**: ターゲット **`aarch64-windows-msvc`**、`zig build lib-windows-arm64 -Davif=static` → **`zig-out/windows-aarch64/libpict.dll`**（`dest_sub_path` で **`libpict.dll`**）  
+- [x] **CI** `build-windows-arm64`（**`runs-on: windows-11-arm`**）で **libavif 静的ビルド → Zig DLL → `ci-verify-libpict-windows.sh`**  
+- [x] **artifact** `libpict-win32-arm64` → **`npm/zigpix-win32-arm64/`**（初回 npm 版は **0.2.1**）  
 
-**ゲート B — 実行検証（ランナー／実機に依存）**
+**ゲート B — 実行検証（ホスト ARM64）**
 
-- [ ] **ネイティブ Windows ARM64** 上で Node / Bun / Deno の FFI / E2E が通ること（**GitHub の ARM64 Windows ランナー**、または **実機＋手動／コミュニティ確認**）  
-- [ ] ゲート B が未達の間は、README / CHANGELOG で **`zigpix-win32-arm64` を「実験的サポート」**と明記し、**「実機確認済み」になったら通常サポートに格上げ**する  
+- [x] **`windows-11-arm` 上**で Node / Bun / Deno の **FFI / E2E**（CI ジョブ内）  
+- [ ] **エンドユーザー実機**（Surface 等）での確認と、README / CHANGELOG での **`zigpix-win32-arm64` サポート表記**の最終文言（「CI 済み」→「実機確認済み」への格上げタイミング）  
 
 **撤退ライン**
 
-- [ ] ゲート B がリリース時点で未達なら、**0.2.0 は x64 のみ**とし、ARM パッケージは **0.2.1** または後続パッチで追従（CHANGELOG に約束を書く）— §6 と整合  
+- [x] ARM optional は **0.2.1** でルート `optionalDependencies` に追加（他 OS は **0.2.0** のまま混在可）。実機ゲートが遅れる場合は README で **WoA を補足**する。  
 
 ### M4 — npm メタパッケージとバージョン
 
-- [x] ルート `package.json`: `version` **0.2.0**、`optionalDependencies` に **darwin / linux / win32-x64** を同一 **0.2.0** で記載（**`zigpix-win32-arm64` は npm 未整備のため次版以降**）  
-- [x] 各 `npm/zigpix-*/package.json`（上記 3 件）の **version 0.2.0** 揃え  
-- [x] `CHANGELOG.md` に 0.2.0 見出し（Windows x64・WSL2・ARM 未同梱・VCRedist / Defender 注記）  
+- [x] ルート `package.json`: `version` **0.2.0**、`optionalDependencies` に **darwin / linux / win32-x64** を **0.2.0**、**`zigpix-win32-arm64`** を **0.2.1** で記載  
+- [x] 各 `npm/zigpix-*/package.json` — **win32-arm64 のみ 0.2.1**、他は **0.2.0**  
+- [x] `CHANGELOG.md` に 0.2.0 見出し（Windows x64・WSL2・VCRedist / Defender 注記）。**0.2.1 / WoA** はリリース時に追記  
 
 ### M5 — リリース手順の更新
 
 - [x] `docs/release.md` の用語表・artifact 名・`gh run download` 例・**publish 順**に **Windows x64** を追記（ARM64 はパッケージ追加後に同ファイルへ追記）  
-- [x] **publish 順（0.2.0 時点）**: **`zigpix-darwin-arm64` → `zigpix-linux-x64` → `zigpix-win32-x64` → ルート `zigpix`**（将来 **`zigpix-win32-arm64`** を出す場合は **win32-x64 の直後・ルートの直前**に挿入）  
+- [x] **publish 順**: **`zigpix-darwin-arm64` → `zigpix-linux-x64` → `zigpix-win32-x64` → `zigpix-win32-arm64`（0.2.1）→ ルート `zigpix`**（ルートを **0.2.1** に上げるリリースで optional 4 件を揃える運用を推奨）  
 
 ### M6 — README / 運用（UX）
 
@@ -214,8 +227,8 @@
 
 1. **`main`（またはマージ予定ブランチ）**で、**Windows x64** の CI が **ビルド＋シンボル検証＋ Node/Bun/Deno テスト**まで緑（必須チェックに含める）。  
 2. **AVIF を含む**既存の FFI / E2E が **Node・Bun・Deno** で **Windows x64** 上で通る。  
-3. **Windows ARM64**: **ゲート A（クロスビルド成果物）**を満たすこと。**ゲート B（実機実行）**が同じリリースに含まれるかは CHANGELOG で明示する。ゲート B 未達なら **ARM は実験扱いまたは次リリース**（§4 M3）。  
-4. **手動リリース手順**（更新後の `docs/release.md`）に従い、**optional サブパッケージ（0.2.0 時点は 3 件: darwin / linux / win32-x64）を先に publish → 最後にルート `zigpix` 0.2.0** ができる状態。ARM64 optional を追加するリリースでは **4 件 + ルート**に拡張する。  
+3. **Windows ARM64**: **ゲート A**（`lib-windows-arm64` + artifact）を満たすこと。**CI 上のゲート B**（`windows-11-arm` で FFI/E2E）は **`build-windows-arm64`** で実施。**エンドユーザー実機**の確認状況は CHANGELOG / README で明示する（§4 M3）。  
+4. **手動リリース手順**（`docs/release.md`）に従い、**optional サブパッケージを先に publish → 最後にルート `zigpix`**。ARM64 を含めるリリースでは **`zigpix-win32-arm64@0.2.1` を win32-x64 の次に publish**し、ルートの `optionalDependencies` と **バージョン（例: 0.2.1）**を整合させる。  
 
 ---
 

@@ -46,7 +46,8 @@
   "optionalDependencies": {
     "zigpix-darwin-arm64": "0.2.0",
     "zigpix-linux-x64": "0.2.0",
-    "zigpix-win32-x64": "0.2.0"
+    "zigpix-win32-x64": "0.2.0",
+    "zigpix-win32-arm64": "0.2.1"
   },
   "dependencies": {
     "koffi": "^2.9.0",
