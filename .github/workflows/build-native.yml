@@ -374,24 +374,21 @@ jobs:
       #
       # hostedtoolcache の Python arm64 は **ARM64EC** のことがあり、**純 ARM64（0xAA64）** の DLL を
       # ctypes で読むと WinError 193 になる。ロード検証は **Zig が生成する同ターゲットのネイティブ exe**
-      #（`zig run`）で行う（scripts/verify_win_dll_load.zig）。
+      #（`zig build-exe`）で行う（scripts/verify_win_dll_load.zig）。
       #
-      # CI ランナーの System32 には ARM64 版 vcruntime140.dll が入っていない場合がある。
-      # VCToolsRedistDir（ilammy/msvc-dev-cmd が設定）の ARM64 CRT を PATH に追加して
-      # LoadLibraryW の依存 DLL 探索に使わせる。koffi の FFI テストにも効く。
-      - name: Add ARM64 MSVC CRT to PATH (vcruntime140 etc. for libpict.dll load)
-        shell: pwsh
+      # `-target aarch64-windows-msvc` は Zig 0.13.0 + MSVC ツールチェーンの組み合わせで
+      # ARM64EC（0xA641）になることがある。ARM64EC プロセスは純 ARM64 DLL を LoadLibrary
+      # できないため 193 になる。`aarch64-windows-gnu` は Zig 同梱 MinGW を使い
+      # 確実に純 ARM64（0xAA64）の exe を生成する。
+      - name: Build DLL loader exe (pure ARM64 / aarch64-windows-gnu)
         run: |
-          $crt = Join-Path $env:VCToolsRedistDir "arm64\Microsoft.VC143.CRT"
-          if (Test-Path $crt) {
-            $crt | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-            Write-Host "Added to PATH: $crt"
-          } else {
-            Write-Warning "Not found: $crt — LoadLibraryW may still fail with 193"
-          }
+          zig build-exe -target aarch64-windows-gnu -O ReleaseSafe \
+            scripts/verify_win_dll_load.zig -femit-bin=verify_win_dll_load.exe
+          echo "=== loader exe machine ===" && llvm-readobj --file-headers verify_win_dll_load.exe | grep -i machine
+          echo "=== libpict.dll machine ===" && llvm-readobj --file-headers zig-out/windows-aarch64/libpict.dll | grep -i machine
 
       - name: Verify libpict.dll loads (Zig LoadLibraryW; not Python ctypes on WoA)
-        run: zig run -target aarch64-windows-msvc scripts/verify_win_dll_load.zig -- zig-out/windows-aarch64/libpict.dll
+        run: ./verify_win_dll_load.exe zig-out/windows-aarch64/libpict.dll
 
       # Bun Windows ARM64 は現状 bun:ffi（dlopen）が無効 —「TinyCC is disabled」。
       # FFI は Node（koffi）+ Deno で網羅。Bun が WoA で FFI 対応したらこのジョブに戻す。
