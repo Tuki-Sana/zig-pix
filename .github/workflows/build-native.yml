@@ -388,28 +388,31 @@ jobs:
           echo "=== libpict.dll machine ===" && llvm-readobj --file-headers zig-out/windows-aarch64/libpict.dll | grep -i machine
           echo "=== libpict.dll imports ===" && llvm-readobj --coff-imports zig-out/windows-aarch64/libpict.dll | grep -i "^Import\|Name:" || true
 
-      # vcruntime140.dll (ARM64) を System32 に入れる唯一の確実な方法は vc_redist.arm64.exe の実行。
-      # PATH 操作・CWD コピー・LOAD_WITH_ALTERED_SEARCH_PATH は全て「依存 DLL が見つかった上で
-      # ARM64 版かどうか」の問題を解決しない。System32 にインストールするとすべての LoadLibrary
-      # 呼び出し（verify / koffi / Node / Deno）が追加設定なしで解決される。
-      # フォールバック: インストーラが見つからない場合は DLL ディレクトリへのコピーで対応。
-      - name: Install VCRedist ARM64 (vcruntime140.dll etc. into System32)
+      # vcruntime140.dll (ARM64) の確実な提供:
+      #   vc_redist インストーラは System32 書き込みが失敗することがある（権限・既存 x64 版の混在等）。
+      #   確実な方法は VCToolsRedistDir の arm64\Microsoft.VC143.CRT から直接コピーすること。
+      #
+      #   コピー先:
+      #     1. zig-out/windows-aarch64/  → LOAD_WITH_ALTERED_SEARCH_PATH が DLL 自身のディレクトリを最初に探索
+      #     2. repo root (CWD)            → koffi / Node / Deno の LoadLibrary が CWD を探索
+      #     3. PATH 先頭                  → 上記で解決できない場合のフォールバック（x64 mingw より先にヒット）
+      - name: Stage ARM64 CRT (vcruntime140.dll → DLL dir + CWD + PATH)
         shell: pwsh
         run: |
-          $vcredist = Join-Path $env:VCToolsRedistDir "vc_redist.arm64.exe"
-          if (Test-Path $vcredist) {
-            Write-Host "Installing: $vcredist"
-            $p = Start-Process -FilePath $vcredist -ArgumentList "/install","/passive","/norestart" -Wait -PassThru
-            Write-Host "Exit code: $($p.ExitCode)"
-          } else {
-            Write-Warning "vc_redist.arm64.exe not found — falling back to DLL-dir staging"
-            $crt = Join-Path $env:VCToolsRedistDir "arm64\Microsoft.VC143.CRT"
-            if (Test-Path $crt) {
-              Copy-Item "$crt\*.dll" zig-out\windows-aarch64\
-              "Path=$crt;$env:PATH" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-              Write-Host "Fallback staged: $crt"
-            }
+          $crt = Join-Path $env:VCToolsRedistDir "arm64\Microsoft.VC143.CRT"
+          if (-not (Test-Path $crt)) {
+            Write-Error "ARM64 CRT not found: $crt"
+            exit 1
           }
+          Write-Host "ARM64 CRT dir: $crt"
+          # 1. LOAD_WITH_ALTERED_SEARCH_PATH 用: DLL 自身のディレクトリ
+          Copy-Item "$crt\*.dll" zig-out\windows-aarch64\ -Force
+          # 2. koffi/Node/Deno 用: CWD (repo root) — 通常の LoadLibrary が探索
+          Copy-Item "$crt\*.dll" . -Force
+          # 3. PATH 先頭に ARM64 CRT を追加（mingw64 等の x64 版より先に見つかるよう）
+          "Path=$crt;$env:PATH" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Staged. vcruntime DLLs in zig-out/windows-aarch64/:"
+          Get-ChildItem zig-out\windows-aarch64\ -Filter "vcruntime*.dll" | Format-Table Name, Length
 
       - name: Verify libpict.dll loads (Zig LoadLibraryW; not Python ctypes on WoA)
         continue-on-error: true
