@@ -838,7 +838,9 @@ fn addLibAvifStatic(b: *std.Build, artifact: *std.Build.Step.Compile) void {
         // libaom は FetchContent 先のビルドツリーに aom.lib。
         artifact.addObjectFile(b.path("build/libavif-install/lib/avif.lib"));
         artifact.addObjectFile(b.path("build/libavif/_deps/libaom-build/aom.lib"));
-        artifact.linkLibCpp();
+        // linkLibCpp() は Zig 同梱の libcxxabi を引き、ilammy/msvc-dev-cmd の MSVC ヘッダと衝突する。
+        // CMake+MSVC でビルドした aom.lib は MSVC の C++ ランタイム（/MD 系）に合わせる。
+        artifact.linkSystemLibrary("msvcprt");
         // libaom / 周辺が参照し得る Windows システムライブラリ
         artifact.linkSystemLibrary("ws2_32");
         artifact.linkSystemLibrary("bcrypt");

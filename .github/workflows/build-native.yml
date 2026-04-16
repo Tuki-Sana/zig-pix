@@ -219,6 +219,7 @@ jobs:
           mkdir -p build/libavif && cd build/libavif
           cmake ../../vendor/libavif -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL \
             -DCMAKE_INSTALL_PREFIX=../../build/libavif-install \
             -DAVIF_CODEC_AOM=LOCAL \
             -DAVIF_CODEC_DAV1D=OFF \
