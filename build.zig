@@ -56,10 +56,13 @@ pub fn build(b: *std.Build) void {
         .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64_v2 },
     });
 
+    // Windows でも libwebp SSE41 等は SSSE3/SSE4.1 が必要。`-mssse3` だけでは clang-cl 経路で効かない
+    // ことがあるため、ターゲット CPU を x86_64_v2 に固定し C/Zig 双方に ISA を伝播させる（Linux VPS と同格）。
     const windows_x64_msvc = b.resolveTargetQuery(.{
         .cpu_arch = .x86_64,
         .os_tag = .windows,
         .abi = .msvc,
+        .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64_v2 },
     });
 
     // Phase 5 で Cloudflare Workers 向けに wasm32-freestanding に切り替える。
