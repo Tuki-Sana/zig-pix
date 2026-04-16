@@ -771,10 +771,11 @@ fn addLibwebp(b: *std.Build, artifact: *std.Build.Step.Compile) void {
         });
     } else if (arch == .x86_64) {
         // x86_64: SSE2 は x86_64 ABI の保証範囲。SSE4.1 は x86_64_v2 以上で利用可能。
+        // SSE41 系ソースは SSSE3（_mm_shuffle_epi8 等）が必要。Windows でも clang 用に ISA フラグを付ける。
         const webp_x86_flags: []const []const u8 = if (artifact.rootModuleTarget().os.tag == .windows)
-            &.{"-std=c11"}
+            &.{ "-std=c11", "-msse2", "-mssse3", "-msse4.1" }
         else
-            &.{ "-std=c11", "-msse2", "-msse4.1" };
+            &.{ "-std=c11", "-msse2", "-mssse3", "-msse4.1" };
         artifact.addCSourceFiles(.{
             .files = &.{
                 "vendor/libwebp/src/dsp/alpha_processing_sse2.c",
