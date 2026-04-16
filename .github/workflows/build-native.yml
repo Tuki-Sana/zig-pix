@@ -448,6 +448,22 @@ jobs:
           echo "=== libpict.dll imports ==="
           llvm-readobj --coff-imports zig-out/windows-aarch64/libpict.dll | grep -i "Name:" || true
 
+          echo "=== koffi native addon machine type ==="
+          find node_modules/koffi -name "*.node" 2>/dev/null | head -3 | while read f; do
+            echo "  $f"
+            llvm-readobj --file-headers "$f" 2>/dev/null | grep -i machine || true
+          done
+
+          echo "=== staged CRT DLLs in zig-out/windows-aarch64/ ==="
+          for f in zig-out/windows-aarch64/vcruntime140.dll zig-out/windows-aarch64/vcruntime140_1.dll; do
+            if [ -f "$f" ]; then
+              echo "FOUND $f"
+              llvm-readobj --file-headers "$f" 2>/dev/null | grep -i machine || true
+            else
+              echo "MISSING $f"
+            fi
+          done
+
       - name: Diagnose LoadLibraryW via PowerShell P/Invoke
         continue-on-error: true
         shell: pwsh

@@ -34,6 +34,28 @@ if (!existsSync(LIB_PATH)) {
   );
 }
 
+// Windows: vcruntime140.dll を完全パス指定で事前ロードする。
+//
+// koffi の LoadLibraryW は SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS) の
+// 影響を受け、CWD / PATH 経由の依存解決が機能しないことがある。完全パス指定の LoadLibraryW は
+// この制限をバイパスし、ロード後はプロセスのモジュールリストに入る。
+// libpict.dll が vcruntime140.dll を要求したとき、ローダーはリスト内の既ロードモジュールを優先
+// 使用するため、CI ステージングで配置した ARM64 版 CRT が確実に使われる。
+if (platform() === "win32") {
+  const dllDir = dirname(LIB_PATH);
+  for (const crtDll of ["vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll"]) {
+    const crtPath = join(dllDir, crtDll);
+    if (existsSync(crtPath)) {
+      try {
+        koffi.load(crtPath);
+        console.log(`pre-loaded: ${crtPath}`);
+      } catch {
+        // 無視: 既にロード済みか、このプロセスには不要
+      }
+    }
+  }
+}
+
 let lib: ReturnType<typeof koffi.load> | undefined;
 try {
   lib = koffi.load(LIB_PATH);
