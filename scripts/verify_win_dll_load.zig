@@ -2,21 +2,18 @@
 //! actions/setup-python の arm64 ビルドは ARM64EC のことがあり、純 ARM64（Machine 0xAA64）の
 //! libpict.dll を ctypes で読むと WinError 193 になる。Zig で生成した同ターゲットのローダで検証する。
 //!
-//! LoadLibraryExW + LOAD_WITH_ALTERED_SEARCH_PATH を使用する理由:
-//! 通常の LoadLibraryW では「呼び出し元 exe のディレクトリ → System32 → CWD → PATH」の順に
-//! 依存 DLL を探す。CI の PATH には x64 版 vcruntime140.dll が含まれる場合があり、
-//! 先に x64 版を掴むと GetLastError=193 になる。
-//! LOAD_WITH_ALTERED_SEARCH_PATH + 絶対パス指定により DLL 自身のディレクトリを
-//! 依存解決の先頭に置くため、同じ場所に置いた ARM64 CRT が確実に使われる。
+//! 二段階テスト:
+//!   1. LOAD_LIBRARY_AS_DATAFILE: 依存 DLL 解決なし・DllMain なし。
+//!      → 失敗(193)なら DLL ファイル自体のフォーマット異常。
+//!      → 成功なら DLL は有効な ARM64 PE。
+//!   2. LOAD_WITH_ALTERED_SEARCH_PATH: 通常ロード。DLL 自身のディレクトリを依存解決先頭にする。
+//!      → 失敗なら依存 DLL（vcruntime140.dll 等）の解決問題。
 const std = @import("std");
 const w = std.os.windows;
 
-/// LOAD_WITH_ALTERED_SEARCH_PATH: 絶対パス指定時に DLL 自身のディレクトリを
-/// 依存 DLL の検索パス先頭にする。
+const LOAD_LIBRARY_AS_DATAFILE: u32 = 0x00000002;
 const LOAD_WITH_ALTERED_SEARCH_PATH: u32 = 0x00000008;
 
-/// Zig 0.13.0 stdlib の kernel32 バインディングに LoadLibraryExW がない場合用。
-/// 既に stdlib に同名宣言があってもリンカは同一シンボルに解決する。
 extern "kernel32" fn LoadLibraryExW(
     lpLibFileName: [*:0]const u16,
     hFile: ?w.HANDLE,
@@ -34,7 +31,6 @@ pub fn main() !void {
         return error.BadArgs;
     }
 
-    // 絶対パスに変換。LOAD_WITH_ALTERED_SEARCH_PATH は絶対パス必須。
     var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
     const abs = std.fs.realpath(argv[1], &path_buf) catch |err| {
         std.debug.print("realpath failed: {}\n", .{err});
@@ -43,10 +39,22 @@ pub fn main() !void {
     std.debug.print("path: {s}\n", .{abs});
 
     const path_utf16 = try std.unicode.utf8ToUtf16LeWithNull(al, abs);
+
+    // --- test 1: DATAFILE (no dep resolution, no DllMain) ---
+    const h_data = LoadLibraryExW(path_utf16.ptr, null, LOAD_LIBRARY_AS_DATAFILE);
+    if (h_data == null) {
+        const err = w.kernel32.GetLastError();
+        std.debug.print("LOAD_LIBRARY_AS_DATAFILE failed GetLastError={d} -- DLL file invalid\n", .{@intFromEnum(err)});
+        return error.LoadFailed;
+    }
+    _ = w.kernel32.FreeLibrary(h_data.?);
+    std.debug.print("LOAD_LIBRARY_AS_DATAFILE OK -- DLL file is valid ARM64 PE\n", .{});
+
+    // --- test 2: full load (dep resolution + DllMain) ---
     const h = LoadLibraryExW(path_utf16.ptr, null, LOAD_WITH_ALTERED_SEARCH_PATH);
     if (h == null) {
         const err = w.kernel32.GetLastError();
-        std.debug.print("LoadLibraryExW failed, GetLastError={d}\n", .{@intFromEnum(err)});
+        std.debug.print("LoadLibraryExW(ALTERED_SEARCH) failed GetLastError={d} -- dependency issue\n", .{@intFromEnum(err)});
         return error.LoadFailed;
     }
     defer _ = w.kernel32.FreeLibrary(h.?);
