@@ -1,6 +1,6 @@
 {
   "name": "zigpix-win32-x64",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "zigpix native binary for Windows x64 (MSVC)",
   "os": ["win32"],
   "cpu": ["x64"],

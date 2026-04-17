@@ -312,7 +312,7 @@ bash scripts/mem-peak.sh
 | Cloudflare Pages（WASM） | ✅ `zigpix-wasm` | ✅ `zigpix-wasm` | ✅ `zigpix-wasm` | ✅ `zigpix-wasm`（ネイティブ DLL ではなく WASM） |
 | Cloudflare Workers | ❌（CPU 制限により非対応）| — | — | — |
 
-**npm のバージョン**: ルート **`zigpix`** とネイティブ optional **4 件**（上表の `zigpix-darwin-arm64` / `zigpix-darwin-x64` / `zigpix-linux-x64` / `zigpix-win32-x64`）は **同一 semver で publish** する（**現在の例: 0.2.2**）。`zigpix-win32-x64` は **0.2.0** から同梱。
+**npm のバージョン**: ルート **`zigpix`** とネイティブ optional **4 件**（上表の `zigpix-darwin-arm64` / `zigpix-darwin-x64` / `zigpix-linux-x64` / `zigpix-win32-x64`）は **同一 semver で publish** する（**現在の例: 0.2.3**）。`zigpix-win32-x64` は **0.2.0** から同梱。
 
 **Windows on ARM64（WoA）**: npm の **公式同梱はありません**（`zigpix-win32-arm64` は出さない方針）。**x64 版の Node.js** で動かすか、**`ZIGPIX_LIB`** で手元ビルドの `libpict.dll` を指すか、**`zig build lib-windows-arm64 -Davif=static`**（`zig-out/windows-aarch64/`）を参照してください。詳細は **`docs/windows-rollout-plan.md` §3.3**。
 

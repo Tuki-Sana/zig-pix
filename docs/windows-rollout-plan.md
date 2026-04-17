@@ -1,15 +1,15 @@
 # Windows ネイティブ対応 — 実行計画書
 
 **ブランチ**: **`main`**（大きな Windows 作業はブランチを切って PR する。旧 **`feat/windows-native-avif`** はマージ済み）  
-**リリース目標バージョン**: **0.2.x**（**0.2.0** で Windows x64 npm、**0.2.1** で WoA 見送り整理、**0.2.2** で **Intel Mac `zigpix-darwin-x64`** を追加。以降も本書で追記）  
-**文書改訂**: **1.9.2**（表紙・§0・§5 を **0.2.2 / 4 optional / 全ジョブ緑**の現状に合わせる。1.9.1 の `macos-15-intel` 変更はそのまま）  
+**リリース目標バージョン**: **0.2.x**（**0.2.0** で Windows x64 npm、**0.2.1** で WoA 見送り整理、**0.2.2** で **Intel Mac `zigpix-darwin-x64`** を追加。**0.2.3** で **Git タグ・npm・ドキュメント**を揃えた）  
+**文書改訂**: **1.9.3**（**0.2.3** リリース整合を表紙に反映。1.9.2 以前の本文変更はそのまま）  
 **最終更新**: 2026-04-17
 
 ---
 
 ## 0. 概要
 
-本書は、当初 **macOS aarch64 / Linux x86_64** に並べて **Windows x64** 向けネイティブ DLL を npm で配布する計画を主軸に書いた **実行計画**である（**Node / Bun / Deno**、**AVIF 静的リンク**）。**macOS Intel（x64）** は optional **`zigpix-darwin-x64`**（CI **`build-darwin-x64`**、`macos-15-intel`）を **0.2.2** で追加済み。**Windows on ARM64 の npm / CI は見送り**（手元では `zig build lib-windows-arm64` 可、§3.3）。CMake 静的 libavif → **`zig build lib -Davif=static`**（macOS / Linux）／**`zig build lib-windows -Davif=static`**（Windows）のパターンは **`.github/workflows/build-native.yml`** の各ジョブを正とする。
+本書は、当初 **macOS aarch64 / Linux x86_64** に並べて **Windows x64** 向けネイティブ DLL を npm で配布する計画を主軸に書いた **実行計画**である（**Node / Bun / Deno**、**AVIF 静的リンク**）。**macOS Intel（x64）** は optional **`zigpix-darwin-x64`**（CI **`build-darwin-x64`**、`macos-15-intel`）を **0.2.2** で追加済み（npm の **0.2.3** でタグ・README 等と整合）。**Windows on ARM64 の npm / CI は見送り**（手元では `zig build lib-windows-arm64` 可、§3.3）。CMake 静的 libavif → **`zig build lib -Davif=static`**（macOS / Linux）／**`zig build lib-windows -Davif=static`**（Windows）のパターンは **`.github/workflows/build-native.yml`** の各ジョブを正とする。
 
 **想定読者**: リポジトリメンテナ、将来の Windows 対応を引き継ぐ開発者。
 
@@ -265,3 +265,4 @@
 | 2026-04-17 | **1.9**: **Intel Mac（`zigpix-darwin-x64`）** optional と **`build-darwin-x64`**（`macos-15-intel`）を追加。§0・§3 optional 表・ローダー・M4/M5・§5・`release.md` / `operations.md` を 4 optional に更新 |
 | 2026-04-17 | **1.9.1**: **`macos-13` 廃止**に伴い `build-darwin-x64` を **`macos-15-intel`** に変更 |
 | 2026-04-17 | **1.9.2**: 表紙の **リリース目標**を **0.2.x** に更新。§0 概要を現状（Intel 同梱済み・正本は `build-native.yml`）に合わせる。**§5** を「全ジョブ緑＋4 optional publish」に更新 |
+| 2026-04-17 | **1.9.3**: **0.2.3**（Git タグ・npm・ドキュメント整合）を表紙に反映 |
