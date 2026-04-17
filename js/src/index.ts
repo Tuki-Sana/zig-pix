@@ -30,7 +30,7 @@ import { createRequire } from "module";
 // 解決順（リリース初期: リポジトリ内のビルド成果物を優先し、古い optional より新シンボルを使いやすくする）:
 //   1. 環境変数 ZIGPIX_LIB（存在するファイルパスのみ）
 //   2. このモジュールからの相対 ../../zig-out/lib/libpict.{dylib,so} または zig-out/windows-x86_64|windows-aarch64/libpict.dll（zig build 済みなら）
-//   3. optionalDependency zigpix-<platform>-<arch> 内の libpict（npm は darwin-arm64 / linux-x64 / win32-x64 の 3 パッケージのみ。win32+arm64 は optional なし）
+//   3. optionalDependency zigpix-<platform>-<arch> 内の libpict（npm は darwin-arm64 / darwin-x64 / linux-x64 / win32-x64 の 4 パッケージ。win32+arm64 は optional なし）
 //
 // 本番 npm のみの環境では 2 が無いので 3 が使われる。プラットフォームパッケージは新 lib で再 publish すること。
 

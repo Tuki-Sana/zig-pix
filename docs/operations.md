@@ -219,7 +219,7 @@ zig llvm-nm -D zig-out/linux-x86_64/libpict.so | grep pict_encode_avif
 
 - ルート `package.json` の `version` と `optionalDependencies`、`npm/zigpix-*/package.json` の `version` を **同一のバージョン番号**に揃える。
 - `libpict.dylib` / `libpict.so` / **`libpict.dll`** は **git 管理外**。publish 直前に **build-native の緑 run** から `npm/zigpix-*/` へ置く。
-- **publish 順**: `zigpix-darwin-arm64` → `zigpix-linux-x64` → **`zigpix-win32-x64`** → ルート **`zigpix`**（逆にすると `npm install zigpix` が失敗し得る）。
+- **publish 順**: `zigpix-darwin-arm64` → **`zigpix-darwin-x64`** → `zigpix-linux-x64` → **`zigpix-win32-x64`** → ルート **`zigpix`**（逆にすると `npm install zigpix` が失敗し得る）。
 - **`zigpix-wasm`**: ルート `zigpix` / optional とは **別パッケージ・別セマバ**（`wasm/package.json`）。ネイティブの publish と**同時に上げる必要はない**。詳細は **`docs/release.md` §1.4 と Phase 2**。
 
 ### ローカル / CI で「今ビルドした lib」を使う
@@ -233,6 +233,11 @@ zig llvm-nm -D zig-out/linux-x86_64/libpict.so | grep pict_encode_avif
 mkdir -p node_modules/zigpix-darwin-arm64
 cp npm/zigpix-darwin-arm64/package.json node_modules/zigpix-darwin-arm64/
 cp zig-out/lib/libpict.dylib node_modules/zigpix-darwin-arm64/libpict.dylib
+
+# macOS Intel（x64）の例（同一 zig-out/lib/libpict.dylib を Intel 上でビルドしたもの）
+mkdir -p node_modules/zigpix-darwin-x64
+cp npm/zigpix-darwin-x64/package.json node_modules/zigpix-darwin-x64/
+cp zig-out/lib/libpict.dylib node_modules/zigpix-darwin-x64/libpict.dylib
 
 # Linux x86_64 の例
 mkdir -p node_modules/zigpix-linux-x64

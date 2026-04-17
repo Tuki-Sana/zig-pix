@@ -289,9 +289,9 @@ bash scripts/mem-peak.sh
 - `quality`: 整数かつ 0–100 の範囲外
 - `speed`: 整数かつ 0–10 の範囲外
 
-**`Error: Cannot find module 'zigpix-darwin-arm64'` などのエラー**
+**`Error: Cannot find module 'zigpix-darwin-arm64'` / `zigpix-darwin-x64` などのエラー**
 
-対応していないプラットフォームです。[動作環境](#動作環境)を確認してください。
+対応していない OS・アーキテクチャです。[動作環境](#動作環境)を確認してください。
 
 **開発時にローカルでビルドした `libpict` を使いたい**
 
@@ -304,13 +304,13 @@ bash scripts/mem-peak.sh
 
 ## 動作環境
 
-| ランタイム | macOS arm64 | Linux x86_64 | Windows x64 |
-|-----------|:-----------:|:------------:|:-------------:|
-| Node.js 18+ | ✅ | ✅ | ✅ **0.2.0 以降** optional **`zigpix-win32-x64`**（**Windows 10+ x64**）。初回のみ **SmartScreen / Defender** の警告が出ることがある |
-| Bun | ✅ | ✅ | ✅ 上に同じ |
-| Deno 2.x | ✅ | ✅ | ✅ 上に同じ |
-| Cloudflare Pages（WASM） | ✅ `zigpix-wasm` | ✅ `zigpix-wasm` | ✅ `zigpix-wasm`（ネイティブ DLL ではなく WASM） |
-| Cloudflare Workers | ❌（CPU 制限により非対応）| — | — |
+| ランタイム | macOS arm64 | macOS x64 (Intel) | Linux x86_64 | Windows x64 |
+|-----------|:-----------:|:------------------:|:------------:|:-------------:|
+| Node.js 18+ | ✅ optional **`zigpix-darwin-arm64`** | ✅ optional **`zigpix-darwin-x64`**（**0.2.2** から） | ✅ optional **`zigpix-linux-x64`** | ✅ **0.2.0 以降** optional **`zigpix-win32-x64`**（**Windows 10+ x64**）。初回のみ **SmartScreen / Defender** の警告が出ることがある |
+| Bun | ✅ | ✅ | ✅ | ✅ 上に同じ |
+| Deno 2.x | ✅ | ✅ | ✅ | ✅ 上に同じ |
+| Cloudflare Pages（WASM） | ✅ `zigpix-wasm` | ✅ `zigpix-wasm` | ✅ `zigpix-wasm` | ✅ `zigpix-wasm`（ネイティブ DLL ではなく WASM） |
+| Cloudflare Workers | ❌（CPU 制限により非対応）| — | — | — |
 
 **Windows on ARM64（WoA）**: npm の **公式同梱はありません**（`zigpix-win32-arm64` は出さない方針）。**x64 版の Node.js** で動かすか、**`ZIGPIX_LIB`** で手元ビルドの `libpict.dll` を指すか、**`zig build lib-windows-arm64 -Davif=static`**（`zig-out/windows-aarch64/`）を参照してください。詳細は **`docs/windows-rollout-plan.md` §3.3**。
 

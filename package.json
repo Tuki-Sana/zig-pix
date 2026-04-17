@@ -1,6 +1,6 @@
 {
   "name": "zigpix",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "High-performance image processing engine (Zig + libavif). Decode, resize, WebP/AVIF encode. Speed vs Sharp depends on pipeline and hardware — see README benchmarks.",
   "type": "module",
   "main": "js/dist/index.js",
@@ -44,9 +44,10 @@
     "url": "https://github.com/Tuki-Sana/zig-pix.git"
   },
   "optionalDependencies": {
-    "zigpix-darwin-arm64": "0.2.1",
-    "zigpix-linux-x64": "0.2.1",
-    "zigpix-win32-x64": "0.2.1"
+    "zigpix-darwin-arm64": "0.2.2",
+    "zigpix-darwin-x64": "0.2.2",
+    "zigpix-linux-x64": "0.2.2",
+    "zigpix-win32-x64": "0.2.2"
   },
   "dependencies": {
     "koffi": "^2.16.0",

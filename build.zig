@@ -12,6 +12,7 @@ const std = @import("std");
 //   zig build lib-linux              → Linux x86_64 shared library for FFI (.so)
 //   zig build lib-windows            → Windows x86_64 MSVC shared library for FFI (.dll, AVIF=static)
 //   zig build lib-windows-arm64      → Windows aarch64 MSVC shared library for FFI (.dll, AVIF=static)
+//   （Intel Mac x64 の npm 用 dylibは CI で macos-13 上の zig build lib と同型。専用 zig build ステップは未追加）
 //   zig build test                   → Unit tests (Zig + C ライブラリ、JPEG/PNG/WebP パス含む)
 //   zig build bench                  → Benchmarks (ReleaseFast)
 // ─────────────────────────────────────────────────────────────────────────────

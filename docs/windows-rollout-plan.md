@@ -2,14 +2,14 @@
 
 **ブランチ**: **`main`**（大きな Windows 作業はブランチを切って PR する。旧 **`feat/windows-native-avif`** はマージ済み）  
 **リリース目標バージョン**: **0.2.0**（Windows 対応を含む変更をまとめて上げる）  
-**文書改訂**: **1.8**（Windows on ARM の npm / CI を見送り。1.7 以前の ARM64 ジョブ記述は履歴として Git を参照）  
+**文書改訂**: **1.9**（**Intel Mac（darwin x64）** optional `zigpix-darwin-x64` と CI `build-darwin-x64` を追加。WoA 見送りは 1.8 どおり）  
 **最終更新**: 2026-04-17
 
 ---
 
 ## 0. 概要
 
-本書は、既存の **macOS aarch64 / Linux x86_64** に並べて **Windows x64** 向けネイティブ DLL を npm で配布し、**Node / Bun / Deno** から **AVIF 含む**既存 API と同等に使えるようにするための **実行計画**である。**Windows on ARM64 の npm / CI は見送り**（手元では `zig build lib-windows-arm64` 可、§3.3）。実装の参照実装として Linux ジョブ（`.github/workflows/build-native.yml` の `build-linux-x64`）の **CMake 静的 libavif → `zig build lib -Davif=static`** パターンを前提とする。
+本書は、既存の **macOS aarch64 / Linux x86_64** に並べて **Windows x64** 向けネイティブ DLL を npm で配布し、**Node / Bun / Deno** から **AVIF 含む**既存 API と同等に使えるようにするための **実行計画**である。**macOS Intel（x64）** は optional **`zigpix-darwin-x64`**（CI `build-darwin-x64`、`macos-13`）で npm 同梱する。**Windows on ARM64 の npm / CI は見送り**（手元では `zig build lib-windows-arm64` 可、§3.3）。実装の参照実装として Linux ジョブ（`.github/workflows/build-native.yml` の `build-linux-x64`）の **CMake 静的 libavif → `zig build lib -Davif=static`** パターンを前提とする。
 
 **想定読者**: リポジトリメンテナ、将来の Windows 対応を引き継ぐ開発者。
 
@@ -44,7 +44,10 @@
 
 | OS / CPU | npm サブパッケージ（案） | 備考 |
 |----------|-------------------------|------|
-| Windows **x64** | `zigpix-win32-x64` | Node の `os.platform()==='win32'` かつ `arch()==='x64'` |
+| macOS **arm64**（Apple Silicon） | `zigpix-darwin-arm64` | Node の `platform==='darwin'` かつ `arch()==='arm64'` |
+| macOS **x64**（Intel） | `zigpix-darwin-x64` | `platform==='darwin'` かつ `arch()==='x64'` |
+| Linux **x86_64** | `zigpix-linux-x64` | `platform==='linux'` かつ `arch()==='x64'` |
+| Windows **x64** | `zigpix-win32-x64` | `platform==='win32'` かつ `arch()==='x64'` |
 | Windows **ARM64**（WoA） | **（npm 未提供）** | 利用者は **`ZIGPIX_LIB`** で自前の `libpict.dll` を渡すか **x64 版 Node** と `zigpix-win32-x64` を使う。開発者向けに **`zig build lib-windows-arm64`**（`build.zig`）は残す |
 
 - 成果物ファイル名は既存ローダーと揃え **`libpict.dll`**（アーキテクチャごとに別ビルド・別パッケージで配布）。
@@ -72,6 +75,7 @@
 
 ### 2.3 Bun / Deno
 
+- **macOS**: **`build-darwin-arm64`**（`macos-14`）と **`build-darwin-x64`**（`macos-13`、Intel）で **Bun・Node・Deno の FFI / E2E** を実行する。  
 - **Windows**: GitHub Actions の **`build-windows-x64`** で **Bun・Node・Deno の FFI / E2E** を実行する（§4 M2）。**`windows-11-arm` ジョブは置かない**（§3.3）。
 
 ---
@@ -88,19 +92,20 @@
    - **Windows on ARM64**: **CI ジョブは置かない**。手元では **`zig build lib-windows-arm64 -Davif=static`**（§3.3）。  
    - Zig バージョンは既存 CI に合わせる（現状 **0.13.0**）。
 
-3. **npm optional（3 サブパッケージ）**  
-   ルート `zigpix` の **`optionalDependencies`** は **同一バージョン（例: 0.2.0）**で **次の 3 件のみ**。
+3. **npm optional（4 サブパッケージ）**  
+   ルート `zigpix` の **`optionalDependencies`** は **同一バージョン**で **次の 4 件**。
 
    | パッケージ | 中身（代表） |
    |------------|----------------|
-   | `zigpix-darwin-arm64` | `libpict.dylib` |
+   | `zigpix-darwin-arm64` | `libpict.dylib`（Apple Silicon） |
+   | `zigpix-darwin-x64` | `libpict.dylib`（Intel） |
    | `zigpix-linux-x64` | `libpict.so` |
    | `zigpix-win32-x64` | `libpict.dll`（x64） |
 
    各 `npm/zigpix-*/package.json` の **`os` / `cpu`** と `files` を npm の規約に合わせて維持する。
 
 4. **ローダー**  
-   - `js/src/index.ts` / `index.deno.ts`: **`win32` + `x64`** は optional **`zigpix-win32-x64`**。  
+   - `js/src/index.ts` / `index.deno.ts`: **`darwin` + `arm64` / `x64`** は各 optional（**`zigpix-darwin-arm64`** / **`zigpix-darwin-x64`**）。**`win32` + `x64`** は **`zigpix-win32-x64`**。  
    - **`win32` + `arm64`**: npm optional は無い。`ZIGPIX_LIB` またはリポジトリ内 **`zig-out/windows-aarch64/libpict.dll`**（自己 `zig build`）のみ。  
    - 解決順: **`ZIGPIX_LIB` → `zig-out` → optional**（従来どおり）。
 
@@ -196,18 +201,18 @@
 
 ### M4 — npm メタパッケージとバージョン
 
-- [x] ルート `package.json`: **`optionalDependencies` は 3 件**（`zigpix-darwin-arm64` / `zigpix-linux-x64` / `zigpix-win32-x64`）。バージョンは **同一（例: 0.2.0）**で揃える。  
+- [x] ルート `package.json`: **`optionalDependencies` は 4 件**（`zigpix-darwin-arm64` / **`zigpix-darwin-x64`** / `zigpix-linux-x64` / `zigpix-win32-x64`）。バージョンは **同一**で揃える。  
 - [x] 各 `npm/zigpix-*/package.json` の **`version`** をルートと整合  
 - [x] `CHANGELOG.md` に Windows x64・WSL2・VCRedist / Defender 注記。**WoA npm は載せない**旨を明記  
 
 ### M5 — リリース手順の更新
 
-- [x] `docs/release.md` の用語表・artifact・**publish 順**は **3 optional + ルート**のみ  
-- [x] **publish 順**: **`zigpix-darwin-arm64` → `zigpix-linux-x64` → `zigpix-win32-x64` → ルート `zigpix`**  
+- [x] `docs/release.md` の用語表・artifact・**publish 順**は **4 optional + ルート**  
+- [x] **publish 順**: **`zigpix-darwin-arm64` → `zigpix-darwin-x64` → `zigpix-linux-x64` → `zigpix-win32-x64` → ルート `zigpix`**  
 
 ### M6 — README / 運用（UX）
 
-- [x] README: 動作環境表を **Windows x64 向け optional 0.2.0** に更新（**Windows 10+**、WSL2 は表下の補足）  
+- [x] README: 動作環境表を **macOS arm64 / macOS x64 (Intel) / Linux / Windows x64** の optional に更新（**Windows 10+**、WSL2 は表下の補足）  
 - [x] **セキュリティ / UX 注記**: **SmartScreen / Defender** を動作環境表に短く記載  
 - [x] **VCRedist**: **多くの環境では既存**／不足時は **VC++ 再頒布可能パッケージ (x64)** を README・CHANGELOG に明記（`/MD` ビルドに整合）  
 
@@ -218,7 +223,7 @@
 1. **`main`（またはマージ予定ブランチ）**で、**Windows x64** の CI が **ビルド＋シンボル検証＋ Node/Bun/Deno テスト**まで緑（必須チェックに含める）。  
 2. **AVIF を含む**既存の FFI / E2E が **Node・Bun・Deno** で **Windows x64** 上で通る。  
 3. **Windows on ARM64**: **npm 同梱・`build-windows-arm64` CI は対象外**（§3.3 M3）。利用者向け文言は README / CHANGELOG で **x64 のみ公式**と明示する。  
-4. **手動リリース手順**（`docs/release.md`）に従い、**3 件の optional を先に publish → 最後にルート `zigpix`**。  
+4. **手動リリース手順**（`docs/release.md`）に従い、**4 件の optional を先に publish → 最後にルート `zigpix`**。  
 
 ---
 
@@ -257,3 +262,4 @@
 | 2026-04-17 | **1.7**: ARM64EC 非互換を既知制約として整理。§2.3 に x64/ARM64 の分岐注記を追加。§3 npm 表のバージョンを 0.2.0/0.2.1 で明示。§3.3 item 7 を「FFI/E2E すべてスキップ」に更新。§4 M3 ゲート B に制約ブロックを追加。§5 完了定義を「ゲート B スキップ」に修正。トラブルシュート表の Bun 行・ARM64EC 行を現在の CI 実態（verify コマンド含む）に合わせ更新。目次に §3.3 を追加 |
 | 2026-04-17 | **1.7.1**: 文書先頭の改訂番号を **1.7** に修正（表紙が 1.6 のまま残っていた件）。§3.3 の手順 6 に **CRT ステージ + verify exe 実行**を追記。トラブルシュート ARM64EC 行を **`build-native.yml` のステージ手順**と test 2 の扱いに合わせ更新 |
 | 2026-04-17 | **1.8**: **WoA npm / CI 見送り**（`zigpix-win32-arm64` 削除、`build-windows-arm64` 削除、optional 3 件、§0・§3・§4 M3〜M5・§5・§6・トラブルシュートを現方針に更新） |
+| 2026-04-17 | **1.9**: **Intel Mac（`zigpix-darwin-x64`）** optional と **`build-darwin-x64`**（`macos-13`）を追加。§0・§3 optional 表・ローダー・M4/M5・§5・`release.md` / `operations.md` を 4 optional に更新 |

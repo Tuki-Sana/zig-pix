@@ -29,7 +29,7 @@ import { fileURLToPath } from "node:url";
 import process from "node:process";
 
 // ── Library path resolution ───────────────────────────────────────────────────
-// 解決順は index.ts の resolveLibPath と同じ（ZIGPIX_LIB → ../../zig-out → optional。win32+arm64 は npm optional なし）。
+// 解決順は index.ts の resolveLibPath と同じ（ZIGPIX_LIB → ../../zig-out → optional。npm optional は darwin arm64/x64・linux x64・win32 x64 の 4 件。win32+arm64 のみ optional なし）。
 
 function resolveLibPath(): string {
   const plat = process.platform;
