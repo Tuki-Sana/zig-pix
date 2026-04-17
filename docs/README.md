@@ -11,7 +11,7 @@
 | [`CHANGELOG.md`](../CHANGELOG.md) | ネイティブ `zigpix` の**利用者向け**バージョン差分 | 利用者・依存更新するアプリ作者 |
 | [`wasm/CHANGELOG.md`](../wasm/CHANGELOG.md) | **`zigpix-wasm` 単体**の差分（npm パッケージはルートと別） | WASM 利用者 |
 | [`docs/operations.md`](./operations.md) | 日常運用（Zig / submodule / libavif / FFI・ローカル overlay、**Windows MSVC 手順**） | リポジトリでビルド・検証する人 |
-| [`docs/windows-rollout-plan.md`](./windows-rollout-plan.md) | **Windows ネイティブ**（x64/ARM64 計画、CI 実装メモ、チェックリスト） | Windows 対応・リリース 0.2.0 を追う人 |
+| [`docs/windows-rollout-plan.md`](./windows-rollout-plan.md) | **Windows ネイティブ**中心だが **npm optional 全体**（macOS Intel 含む）の計画・CI・チェックリスト | メンテナ（Windows / WoA / **Intel Mac `zigpix-darwin-x64`** の方針と `build-native.yml`） |
 | [`docs/release.md`](./release.md) | **`main` へ push 済みから npm 公開まで**（チェックリスト。ネイティブと **`zigpix-wasm` は別セマバ**でよい旨は §1.4） | メンテナ（リリース作業） |
 | [`docs/CHECKLIST.md`](./CHECKLIST.md) | 実装フェーズの**追跡用チェックリスト**（長い・時系列） | 実装中に見失わないため |
 | [`docs/dev_log.md`](./dev_log.md) | 開発メモ（日付つき抜粋）。正本にしない | メンテナの作業記録 |

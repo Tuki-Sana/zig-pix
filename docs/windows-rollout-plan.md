@@ -1,15 +1,15 @@
 # Windows ネイティブ対応 — 実行計画書
 
 **ブランチ**: **`main`**（大きな Windows 作業はブランチを切って PR する。旧 **`feat/windows-native-avif`** はマージ済み）  
-**リリース目標バージョン**: **0.2.0**（Windows 対応を含む変更をまとめて上げる）  
-**文書改訂**: **1.9.1**（Intel CI ランナーを **`macos-15-intel`** に更新。`macos-13` は GitHub 側で廃止済み）  
+**リリース目標バージョン**: **0.2.x**（**0.2.0** で Windows x64 npm、**0.2.1** で WoA 見送り整理、**0.2.2** で **Intel Mac `zigpix-darwin-x64`** を追加。以降も本書で追記）  
+**文書改訂**: **1.9.2**（表紙・§0・§5 を **0.2.2 / 4 optional / 全ジョブ緑**の現状に合わせる。1.9.1 の `macos-15-intel` 変更はそのまま）  
 **最終更新**: 2026-04-17
 
 ---
 
 ## 0. 概要
 
-本書は、既存の **macOS aarch64 / Linux x86_64** に並べて **Windows x64** 向けネイティブ DLL を npm で配布し、**Node / Bun / Deno** から **AVIF 含む**既存 API と同等に使えるようにするための **実行計画**である。**macOS Intel（x64）** は optional **`zigpix-darwin-x64`**（CI `build-darwin-x64`、`macos-15-intel`）で npm 同梱する。**Windows on ARM64 の npm / CI は見送り**（手元では `zig build lib-windows-arm64` 可、§3.3）。実装の参照実装として Linux ジョブ（`.github/workflows/build-native.yml` の `build-linux-x64`）の **CMake 静的 libavif → `zig build lib -Davif=static`** パターンを前提とする。
+本書は、当初 **macOS aarch64 / Linux x86_64** に並べて **Windows x64** 向けネイティブ DLL を npm で配布する計画を主軸に書いた **実行計画**である（**Node / Bun / Deno**、**AVIF 静的リンク**）。**macOS Intel（x64）** は optional **`zigpix-darwin-x64`**（CI **`build-darwin-x64`**、`macos-15-intel`）を **0.2.2** で追加済み。**Windows on ARM64 の npm / CI は見送り**（手元では `zig build lib-windows-arm64` 可、§3.3）。CMake 静的 libavif → **`zig build lib -Davif=static`**（macOS / Linux）／**`zig build lib-windows -Davif=static`**（Windows）のパターンは **`.github/workflows/build-native.yml`** の各ジョブを正とする。
 
 **想定読者**: リポジトリメンテナ、将来の Windows 対応を引き継ぐ開発者。
 
@@ -25,7 +25,7 @@
 3.2. CI・成果物パス（x64 実装の正）  
 3.3. Windows on ARM64（手元ビルドのみ・npm / CI 見送り）  
 4. マイルストーンとチェックリスト  
-5. 完了の定義（0.2.0 を出す条件）  
+5. 完了の定義（ネイティブ optional と npm）  
 6. リスクと切り戻し  
 7. 関連ドキュメント  
 8. 改訂履歴
@@ -218,12 +218,12 @@
 
 ---
 
-## 5. 完了の定義（0.2.0 を出す条件）
+## 5. 完了の定義（ネイティブ optional と npm）
 
-1. **`main`（またはマージ予定ブランチ）**で、**Windows x64** の CI が **ビルド＋シンボル検証＋ Node/Bun/Deno テスト**まで緑（必須チェックに含める）。  
-2. **AVIF を含む**既存の FFI / E2E が **Node・Bun・Deno** で **Windows x64** 上で通る。  
-3. **Windows on ARM64**: **npm 同梱・`build-windows-arm64` CI は対象外**（§3.3 M3）。利用者向け文言は README / CHANGELOG で **x64 のみ公式**と明示する。  
-4. **手動リリース手順**（`docs/release.md`）に従い、**4 件の optional を先に publish → 最後にルート `zigpix`**。  
+1. **`main`** で **Build native binaries**（`build-native.yml`）の **全ジョブ**（`build-darwin-arm64` / **`build-darwin-x64`** / `build-linux-x64` / `build-windows-x64`）が **ビルド検証＋ FFI / E2E** まで緑（必須チェックに含める）。**Windows x64** は **シンボル・依存 DLL 検証**（`scripts/ci-verify-libpict-windows.sh`）を含む。  
+2. **AVIF を含む** FFI / E2E が **Node・Bun・Deno** で上記各プラットフォーム上で通る。  
+3. **Windows on ARM64**: **npm 同梱・`build-windows-arm64` CI は対象外**（§3.3 M3）。README / CHANGELOG で **WoA は公式同梱なし**と明示する。  
+4. **手動リリース手順**（`docs/release.md`）に従い、**4 件の optional を先に publish → 最後にルート `zigpix`**（バージョンはルートと揃える）。  
 
 ---
 
@@ -264,3 +264,4 @@
 | 2026-04-17 | **1.8**: **WoA npm / CI 見送り**（`zigpix-win32-arm64` 削除、`build-windows-arm64` 削除、optional 3 件、§0・§3・§4 M3〜M5・§5・§6・トラブルシュートを現方針に更新） |
 | 2026-04-17 | **1.9**: **Intel Mac（`zigpix-darwin-x64`）** optional と **`build-darwin-x64`**（`macos-15-intel`）を追加。§0・§3 optional 表・ローダー・M4/M5・§5・`release.md` / `operations.md` を 4 optional に更新 |
 | 2026-04-17 | **1.9.1**: **`macos-13` 廃止**に伴い `build-darwin-x64` を **`macos-15-intel`** に変更 |
+| 2026-04-17 | **1.9.2**: 表紙の **リリース目標**を **0.2.x** に更新。§0 概要を現状（Intel 同梱済み・正本は `build-native.yml`）に合わせる。**§5** を「全ジョブ緑＋4 optional publish」に更新 |

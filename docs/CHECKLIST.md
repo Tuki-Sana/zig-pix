@@ -293,7 +293,7 @@ zig llvm-nm -D zig-out/linux-x86_64/libpict.so | grep pict_encode_avif  # シン
 
 - [x] プラットフォーム別 pre-built バイナリ戦略の確定
   - `optionalDependencies` を使ったプラットフォーム別パッケージ構成
-  - 対象: `zigpix-darwin-arm64`, `zigpix-linux-x64`（最小構成）
+  - 対象（現行）: `zigpix-darwin-arm64`, **`zigpix-darwin-x64`**, `zigpix-linux-x64`, **`zigpix-win32-x64`**（Phase 8B 当時は darwin + linux のみ）
   - `npm/` ディレクトリにプラットフォームパッケージのスケルトン作成
 - [x] GitHub Actions CI でクロスプラットフォームビルドを自動化
   - `.github/workflows/build-native.yml` 作成
@@ -311,7 +311,7 @@ zig llvm-nm -D zig-out/linux-x86_64/libpict.so | grep pict_encode_avif  # シン
   - `LICENSE`（MIT）をルートに追加
   - `THIRD_PARTY_LICENSES` をルートに追加（libjpeg-turbo / zlib / libpng / libwebp / libavif / libaom）
   - ルート `package.json` の `files` に `LICENSE` / `THIRD_PARTY_LICENSES` を追加
-  - `npm/zigpix-darwin-arm64/` / `npm/zigpix-linux-x64/` の `package.json` 同様に更新
+  - 各 `npm/zigpix-*/` の `package.json` をルートの `version` / `optionalDependencies` と揃える
   - CI で `cp LICENSE THIRD_PARTY_LICENSES npm/zigpix-*/` をアーティファクト生成前に追加
 - [x] npm publish フロー確立 (`npm pack` → テスト → `npm publish`)
   - `npm login` + Granular Access Token (Bypass 2FA) で認証
