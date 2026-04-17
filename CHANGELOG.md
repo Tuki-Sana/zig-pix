@@ -11,7 +11,7 @@
 
 ### 追加
 
-- **macOS Intel（x64）**: optional **`zigpix-darwin-x64`**（`libpict.dylib`）。CI（`build-native.yml` の **`build-darwin-x64`**、`macos-13`）で CMake 静的 libavif → **`zig build lib -Davif=static`** と FFI / E2E。
+- **macOS Intel（x64）**: optional **`zigpix-darwin-x64`**（`libpict.dylib`）。CI（`build-native.yml` の **`build-darwin-x64`**、`macos-15-intel`）で CMake 静的 libavif → **`zig build lib -Davif=static`** と FFI / E2E。
 
 ## [0.2.1] - 2026-04-17
 

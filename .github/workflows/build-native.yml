@@ -189,7 +189,8 @@ jobs:
 
   # ── macOS x64 (Intel) ─────────────────────────────────────────────────────
   build-darwin-x64:
-    runs-on: macos-13
+    # macos-13 は 2025-12 廃止。Intel x86_64 は macos-15-intel（GitHub 公式ラベル）
+    runs-on: macos-15-intel
     steps:
       - uses: actions/checkout@v4
         with:
