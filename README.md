@@ -306,7 +306,7 @@ bash scripts/mem-peak.sh
 
 | ランタイム | macOS arm64 | Linux x86_64 | Windows x64 |
 |-----------|:-----------:|:------------:|:-------------:|
-| Node.js 18+ | ✅ | ✅ | ✅ **0.2.0** から optional **`zigpix-win32-x64`**（**Windows 10+ x64**）。初回のみ **SmartScreen / Defender** の警告が出ることがある |
+| Node.js 18+ | ✅ | ✅ | ✅ **0.2.0 以降** optional **`zigpix-win32-x64`**（**Windows 10+ x64**）。初回のみ **SmartScreen / Defender** の警告が出ることがある |
 | Bun | ✅ | ✅ | ✅ 上に同じ |
 | Deno 2.x | ✅ | ✅ | ✅ 上に同じ |
 | Cloudflare Pages（WASM） | ✅ `zigpix-wasm` | ✅ `zigpix-wasm` | ✅ `zigpix-wasm`（ネイティブ DLL ではなく WASM） |

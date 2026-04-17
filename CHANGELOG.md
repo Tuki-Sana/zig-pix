@@ -5,9 +5,14 @@
 
 ## [Unreleased]
 
+（次パッチ以降の差分をここに書く）
+
+## [0.2.1] - 2026-04-17
+
 ### 変更
 
 - **Windows on ARM64**: **`zigpix-win32-arm64` npm 同梱と `build-windows-arm64`（`windows-11-arm`）CI を見送り**。ルート `optionalDependencies` は **darwin / linux / win32-x64 の 3 件**のみ。WoA では **`ZIGPIX_LIB`**・**x64 Node**・または **`zig build lib-windows-arm64`** による自己ビルドを案内（`docs/windows-rollout-plan.md` §3.3）。
+- **README**: npm ページ向けに **WoA（公式同梱なし）**の注記を追記。**ルート・各 optional のバージョンを 0.2.1 に揃えた**（ネイティブ DLL の中身は 0.2.0 と同一の CI 成果物でよい）。
 
 ## [0.2.0] - 2026-04-16
 
