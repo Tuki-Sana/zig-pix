@@ -5,7 +5,9 @@
 
 ## [Unreleased]
 
-（次パッチ以降の差分をここに書く）
+### 変更
+
+- **Windows on ARM64**: **`zigpix-win32-arm64` npm 同梱と `build-windows-arm64`（`windows-11-arm`）CI を見送り**。ルート `optionalDependencies` は **darwin / linux / win32-x64 の 3 件**のみ。WoA では **`ZIGPIX_LIB`**・**x64 Node**・または **`zig build lib-windows-arm64`** による自己ビルドを案内（`docs/windows-rollout-plan.md` §3.3）。
 
 ## [0.2.0] - 2026-04-16
 
@@ -21,7 +23,7 @@
 ### 互換性・環境
 
 - **Windows 10 以降 x64** をネイティブ対象とする（Node engines `>=18` と整合）。**WSL2** 上では引き続き Linux 用 `.so` が使われる。
-- **Windows ARM64**（`zigpix-win32-arm64`）用 npm パッケージは **本リリースでは未同梱**（計画は `docs/windows-rollout-plan.md` §4 M3）。x64 のみ先に出す方針。
+- **Windows on ARM64**: npm 公式同梱は **対象外**（`zigpix-win32-arm64` は出さない。`docs/windows-rollout-plan.md` §3.3）。**0.2.0** 時点では x64 のみ npm で配布。
 - **Visual C++ 再頒布可能パッケージ (x64)** が無い環境では DLL ロードに失敗することがある（ビルドは `/MD` + ランタイム依存）。不足時は Microsoft 提供の **VC++ Redistributable x64** を入れる。
 - **SmartScreen / Defender**: 未署名の `libpict.dll` を初回取得する際に警告が出る場合がある。
 

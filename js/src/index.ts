@@ -30,7 +30,7 @@ import { createRequire } from "module";
 // 解決順（リリース初期: リポジトリ内のビルド成果物を優先し、古い optional より新シンボルを使いやすくする）:
 //   1. 環境変数 ZIGPIX_LIB（存在するファイルパスのみ）
 //   2. このモジュールからの相対 ../../zig-out/lib/libpict.{dylib,so} または zig-out/windows-x86_64|windows-aarch64/libpict.dll（zig build 済みなら）
-//   3. optionalDependency zigpix-<platform>-<arch> 内の libpict
+//   3. optionalDependency zigpix-<platform>-<arch> 内の libpict（npm は darwin-arm64 / linux-x64 / win32-x64 の 3 パッケージのみ。win32+arm64 は optional なし）
 //
 // 本番 npm のみの環境では 2 が無いので 3 が使われる。プラットフォームパッケージは新 lib で再 publish すること。
 
@@ -54,16 +54,22 @@ function resolveLibPath(): string {
   }
 
   const __dirname = dirname(fileURLToPath(import.meta.url));
-  // GitHub windows-11-arm では process.arch が x64 のままのことがある（runner イメージの誤報）。
-  const winHostArm64Ci = process.env.RUNNER_ARCH === "ARM64";
   const winZigOutDir =
-    plat === "win32" && (cpu === "arm64" || winHostArm64Ci) ? "windows-aarch64" : "windows-x86_64";
+    plat === "win32" && cpu === "arm64" ? "windows-aarch64" : "windows-x86_64";
   const zigOut =
     plat === "win32"
       ? join(__dirname, "../../zig-out", winZigOutDir, "libpict.dll")
       : join(__dirname, `../../zig-out/lib/libpict.${ext}`);
   if (existsSync(zigOut)) {
     return zigOut;
+  }
+
+  if (plat === "win32" && cpu === "arm64") {
+    throw new Error(
+      `zigpix: Windows on ARM64 向けの npm optional は提供していません。` +
+        `自前ビルドの \`zig-out/windows-aarch64/libpict.dll\` を置くか \`ZIGPIX_LIB\` で指定するか、` +
+        `x64 版 Node.js と optional \`zigpix-win32-x64\` を利用してください（\`zig build lib-windows-arm64 -Davif=static\` は \`docs/windows-rollout-plan.md\` 参照）。`,
+    );
   }
 
   try {

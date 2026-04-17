@@ -2,14 +2,14 @@
 
 **ブランチ**: **`main`**（大きな Windows 作業はブランチを切って PR する。旧 **`feat/windows-native-avif`** はマージ済み）  
 **リリース目標バージョン**: **0.2.0**（Windows 対応を含む変更をまとめて上げる）  
-**文書改訂**: **1.7**（ARM64EC 既知制約と CI 手順の整合。1.6 以前のセマバ注記は `release.md` 等へ集約済み）  
+**文書改訂**: **1.8**（Windows on ARM の npm / CI を見送り。1.7 以前の ARM64 ジョブ記述は履歴として Git を参照）  
 **最終更新**: 2026-04-17
 
 ---
 
 ## 0. 概要
 
-本書は、既存の **macOS aarch64 / Linux x86_64** に並べて **Windows x64 / ARM64** 向けネイティブ DLL を配布し、**Node / Bun / Deno** から **AVIF 含む**既存 API と同等に使えるようにするための **実行計画**である。実装の参照実装として Linux ジョブ（`.github/workflows/build-native.yml` の `build-linux-x64`）の **CMake 静的 libavif → `zig build lib -Davif=static`** パターンを前提とする。
+本書は、既存の **macOS aarch64 / Linux x86_64** に並べて **Windows x64** 向けネイティブ DLL を npm で配布し、**Node / Bun / Deno** から **AVIF 含む**既存 API と同等に使えるようにするための **実行計画**である。**Windows on ARM64 の npm / CI は見送り**（手元では `zig build lib-windows-arm64` 可、§3.3）。実装の参照実装として Linux ジョブ（`.github/workflows/build-native.yml` の `build-linux-x64`）の **CMake 静的 libavif → `zig build lib -Davif=static`** パターンを前提とする。
 
 **想定読者**: リポジトリメンテナ、将来の Windows 対応を引き継ぐ開発者。
 
@@ -23,7 +23,7 @@
 3. 技術方針（実装の柱）  
 3.1. `build.zig` 実装メモ  
 3.2. CI・成果物パス（x64 実装の正）  
-3.3. CI・成果物パス（ARM64、`build-windows-arm64`）  
+3.3. Windows on ARM64（手元ビルドのみ・npm / CI 見送り）  
 4. マイルストーンとチェックリスト  
 5. 完了の定義（0.2.0 を出す条件）  
 6. リスクと切り戻し  
@@ -45,7 +45,7 @@
 | OS / CPU | npm サブパッケージ（案） | 備考 |
 |----------|-------------------------|------|
 | Windows **x64** | `zigpix-win32-x64` | Node の `os.platform()==='win32'` かつ `arch()==='x64'` |
-| Windows **ARM64** | `zigpix-win32-arm64` | `arch()==='arm64'`（WoA） |
+| Windows **ARM64**（WoA） | **（npm 未提供）** | 利用者は **`ZIGPIX_LIB`** で自前の `libpict.dll` を渡すか **x64 版 Node** と `zigpix-win32-x64` を使う。開発者向けに **`zig build lib-windows-arm64`**（`build.zig`）は残す |
 
 - 成果物ファイル名は既存ローダーと揃え **`libpict.dll`**（アーキテクチャごとに別ビルド・別パッケージで配布）。
 - **32-bit Windows** は対象外（README で **64-bit のみ**と明記）。
@@ -72,8 +72,7 @@
 
 ### 2.3 Bun / Deno
 
-- **x64 ジョブでは必須**: GitHub Actions の `build-windows-x64` で、既存の Linux ジョブと同様に **Bun・Node・Deno の FFI / E2E** を実行する（§4 の M2）。  
-- **ARM64 ジョブは制約あり**: `build-windows-arm64` では、ランナーの実行ファイルが ARM64EC のため FFI / E2E はすべてスキップ（§3.3 item 7・§4 M3 参照）。
+- **Windows**: GitHub Actions の **`build-windows-x64`** で **Bun・Node・Deno の FFI / E2E** を実行する（§4 M2）。**`windows-11-arm` ジョブは置かない**（§3.3）。
 
 ---
 
@@ -86,25 +85,24 @@
 
 2. **ツールチェーン**  
    - 主経路: **`windows-latest`（x64）** でビルド・**実行テスト**まで完結。  
-   - **ARM64**: ネイティブ ARM ランナーが使える場合はそれに加え、**x64 ランナー上の `aarch64-windows-msvc` クロスビルド（ビルドのみ）**を補助線とする（詳細は §4 M3）。  
+   - **Windows on ARM64**: **CI ジョブは置かない**。手元では **`zig build lib-windows-arm64 -Davif=static`**（§3.3）。  
    - Zig バージョンは既存 CI に合わせる（現状 **0.13.0**）。
 
-3. **npm optional — バージョン分割**  
-   **0.2.0** で揃えるのは **3 サブパッケージ**。`zigpix-win32-arm64` は **FFI/E2E 実行が未保証**のため **0.2.1** で別途追加（M4 参照）。
+3. **npm optional（3 サブパッケージ）**  
+   ルート `zigpix` の **`optionalDependencies`** は **同一バージョン（例: 0.2.0）**で **次の 3 件のみ**。
 
-   | パッケージ | 中身（代表） | バージョン |
-   |------------|----------------|-----------|
-   | `zigpix-darwin-arm64` | `libpict.dylib` | 0.2.0 |
-   | `zigpix-linux-x64` | `libpict.so` | 0.2.0 |
-   | `zigpix-win32-x64` | `libpict.dll`（x64） | 0.2.0 |
-   | `zigpix-win32-arm64` | `libpict.dll`（ARM64）| **0.2.1**（DLL ビルドのみ CI 済み・FFI テストは既知制約でスキップ中。Zig ARM64EC 対応後に昇格） |
+   | パッケージ | 中身（代表） |
+   |------------|----------------|
+   | `zigpix-darwin-arm64` | `libpict.dylib` |
+   | `zigpix-linux-x64` | `libpict.so` |
+   | `zigpix-win32-x64` | `libpict.dll`（x64） |
 
-   各 `npm/zigpix-*/package.json` の **`os` / `cpu`** と `files` を npm の規約に合わせて維持・追加する。
+   各 `npm/zigpix-*/package.json` の **`os` / `cpu`** と `files` を npm の規約に合わせて維持する。
 
 4. **ローダー**  
-   - `js/src/index.ts`: `win32` + `dll` + `zigpix-win32-${arch}`。  
-   - `js/src/index.deno.ts`: 同様。  
-   - 既存の `ZIGPIX_LIB` → `zig-out` → optional の解決順を維持。
+   - `js/src/index.ts` / `index.deno.ts`: **`win32` + `x64`** は optional **`zigpix-win32-x64`**。  
+   - **`win32` + `arm64`**: npm optional は無い。`ZIGPIX_LIB` またはリポジトリ内 **`zig-out/windows-aarch64/libpict.dll`**（自己 `zig build`）のみ。  
+   - 解決順: **`ZIGPIX_LIB` → `zig-out` → optional**（従来どおり）。
 
 5. **ランタイム依存（ユーザー向け）**  
    - **既定**: MSVC 系リンクでは **Visual C++ 再頒布可能パッケージ（VCRedist）** が必要な場合がある。  
@@ -134,36 +132,28 @@
 7. **FFI / E2E**: Bun・Node（koffi）・Deno が **`test/ffi/*` / `test/e2e/*`** を実行。Bun/Node のテストは **`zig-out/windows-x86_64/libpict.dll`** を参照する（`zig-out/lib/` は Unix 用）。  
 8. **artifact** `libpict-win32-x64` に `npm/zigpix-win32-x64/` を載せる。
 
-### 3.3 CI・成果物パス（ARM64、`build-windows-arm64`）
+### 3.3 Windows on ARM64（手元ビルドのみ・npm / CI 見送り）
 
-1. **`runs-on: windows-11-arm`**（公開リポ向け GitHub Hosted）。**`ilammy/msvc-dev-cmd@v1`**（`arch: arm64`）で MSVC + SDK。  
-2. **`actions/setup-node@v4`**（`architecture: arm64`）— ランナー既定の Node が **x64（WoW 報告）**のままだと **`process.arch` が `x64`** になり、**aarch64 の `libpict.dll` を koffi でロードできない**（`actions/partner-runner-images#117`）。ネイティブ arm64 Node を PATH 先頭に置く。  
-3. **CMake（libavif）** — **`Visual Studio 17 2022` + `-A ARM64`** で静的ビルド（`cmake --build --config Release`）。**Ninja + `-DCMAKE_VS_PLATFORM_NAME=ARM64`** だけでは **x64 の .lib** が混ざり、**ARM64 の Node/Python で `libpict.dll` を読むと WinError 193** になることがある。ビルドツリーは **`build/libavif`**（`build.zig` の `aom.lib` パスと一致）。**VS マルチコンフィグ**では `avif.lib` / `aom.lib` が **`lib/Release/`** 等に付くため、**`scripts/ci-normalize-libavif-msvc-libs.sh`** で **`build/libavif-install/lib/avif.lib`** と **`build/libavif/_deps/libaom-build/aom.lib`** に揃える。  
-4. **`vendor/libavif`** を x64 ジョブと同型の CMake オプションで静的インストール（`build/libavif-install/`）。  
-5. **`zig build lib-windows-arm64 -Doptimize=ReleaseFast -Davif=static`** → **`zig-out/windows-aarch64/libpict.dll`**。  
-6. **`scripts/ci-verify-libpict-windows.sh zig-out/windows-aarch64/libpict.dll`** で exports / DLL 依存を検証。  
-   - **純 ARM64 ローダでの DLL 検証**（`build-native.yml`）: **`zig build-exe -target aarch64-windows-gnu -O ReleaseSafe scripts/verify_win_dll_load.zig -femit-bin=verify_win_dll_load.exe`** のあと、**`Stage ARM64 CRT for verify`**（`%VCToolsRedistDir%\arm64\Microsoft.VC143.CRT\*.dll` → `zig-out/windows-aarch64/`）で CRT を同梱し、**`./verify_win_dll_load.exe zig-out/windows-aarch64/libpict.dll`** を実行（`scripts/verify_win_dll_load.zig` の test 1 / test 2）。  
-7. **FFI / E2E**: **現在すべてスキップ**（`build-windows-arm64`）。  
-   - **Bun**: WoA 公式ビルドで `bun:ffi`（`dlopen`）が無効のため CI スキップ。  
-   - **Node（koffi）/ Deno**: `windows-11-arm` ランナーの実行ファイルが **ARM64EC**（Machine 0xA641）であり、Zig 0.13.0 が生成する **純 ARM64**（Machine 0xAA64）の `libpict.dll` をロードできない（OS 仕様。§4 M3 ゲート B 参照）。Zig が `aarch64_ec-windows-msvc` をサポートした時点でスキップを解除する。  
-8. **artifact** `libpict-win32-arm64`。
+**方針（2026-04）**: **`zigpix-win32-arm64` を npm に出さない**。**`build-native.yml` に `windows-11-arm` ジョブは置かない**（ホストが ARM64EC と純 ARM64 DLLの組み合わせで FFI を CI 保証しづらい、Bun FFI が WoA で非対応、コスト対効果）。
 
-**クロスコンパイル代替**: `windows-latest` 上で `aarch64-windows-msvc` を組むことも可能だが、CMake / libaom / Zig の組み合わせが重いため、**ゲート A はネイティブ ARM ランナー**を正とする。
+手元で **`libpict.dll`（aarch64-windows-msvc）** を試す場合の目安:
 
-**トラブルシュート（実際に踏んだもの）**
+1. **`ilammy/msvc-dev-cmd`**（`arch: arm64`）で MSVC + Windows SDK。  
+2. **CMake（libavif）** — **`Visual Studio 17 2022` + `-A ARM64`**、`cmake --build --config Release` + install。  
+3. **`scripts/ci-normalize-libavif-msvc-libs.sh`**（VS マルチコンフィグで `avif.lib` / `aom.lib` を `build.zig` と揃える）。  
+4. **`zig build lib-windows-arm64 -Doptimize=ReleaseFast -Davif=static`** → **`zig-out/windows-aarch64/libpict.dll`**。  
+5. **`scripts/ci-verify-libpict-windows.sh zig-out/windows-aarch64/libpict.dll`**。必要なら **`scripts/verify_win_dll_load.zig`**（純 ARM64 exe；CRT を DLL 同ディレクトリに置く等はスクリプト先頭コメント参照）。
+
+**トラブルシュート（Windows・x64 中心 + 手元 ARM64）**
 
 | 症状 | 原因の例 | 対処の方向 |
 |------|-----------|------------|
 | `libcxxabi` サブコンパイル失敗、`vcruntime_typeinfo` 二重定義 | Windows で `linkLibCpp()` + MSVC ヘッダ混在 | `msvcprt` + CMake `/MD` 明示（§3.1） |
 | `cp: ... libpict.dll: No such file` | Zig 既定出力が `pict.dll` のみ | `dest_sub_path` で `libpict.dll` インストール |
-| Bun `dlopen` **126**、`zig-out/lib/libpict.dll` | FFI テストが Unix パス固定 | `test/ffi/test.ts` / `test.node.ts` で **`win32` + `os.arch()`** および CI 時 **`RUNNER_ARCH === 'ARM64'`** で **`windows-x86_64` / `windows-aarch64`** の `libpict.dll` |
+| Bun `dlopen` **126**、`zig-out/lib/libpict.dll` | FFI テストが Unix パス固定 | `test/ffi/test.ts` / `test.node.ts` で **`win32` + `os.arch()`** と **`zig-out/windows-x86_64` / `windows-aarch64`**（**aarch64 は手元ビルド時のみ**） |
 | libwebp SIMD 系コンパイルエラー（x86） | ターゲット ISA フラグ | `build.zig` で x86 WebP 用 **`-msse2 -mssse3 -msse4.1`** 等、`windows_x64_msvc` の **`cpu_model`** 調整（ログ駆動） |
 | CI の verify が **exit 157** などで即死（ログに `ok:` が無い） | Git Bash から **`dumpbin` を stdout リダイレクト**すると異常終了することがある | **`llvm-readobj` / `llvm-objdump` 主経路**（`scripts/ci-verify-libpict-windows.sh` 実装） |
-| **`build-windows-arm64`** で Bun が **`dlopen() is not available`** | Bun Windows ARM64 で **FFI / TinyCC がビルドから無効** | **x64** では Bun も実行（そのまま）。**ARM64** では Bun に加え Node / Deno も ARM64EC 非互換でスキップ（§3.3 item 7 参照）。Bun が WoA で FFI 対応し、かつ Zig が ARM64EC DLL を生成できるようになったら両方戻す |
-| **Node/koffi** が **`libpict.dll` を開けない**／**`process.arch` が `x64`** | **`windows-11-arm` が AMD64 を誤報**し既定 Node が x64 のことがある | **`actions/setup-node` の `architecture: arm64`**。テスト・ローダーは **`RUNNER_ARCH === 'ARM64'`** で **`windows-aarch64`** を解決（`partner-runner-images#117`） |
-| **`Failed to load shared library: The operation completed successfully`**（koffi） | 旧 koffi の **Windows での `GetLastError` / 依存 DLL 探索**の不具合や **SEHOP** との相互作用 | ルート **`koffi` を ^2.16 系**に上げる（changelog: 2.6.9 DLL ディレクトリ探索、2.6.10 GetLastError、2.8.5/2.8.7 load・SEHOP 等）。**x64 ジョブ**では必要なら **Python `ctypes.WinDLL`** で DLL 単体のロード可否を確認 |
-| **Python `ctypes` / WinError 193**（`%1 is not a valid Win32 application`） | **DLL が AMD64 PE** のまま **純 ARM64 プロセス**で読んでいる（CMake が x64 用 `aom.lib` を生成した等） | CI では **`-G "Visual Studio 17 2022" -A ARM64`** で libavif をビルド（`build-native.yml`）。成果物は **`llvm-readobj --file-headers` で Machine が ARM64（0xAA64）** であることを確認 |
-| **同じく WinError 193** だが **PE Machine は既に ARM64（0xAA64）** | **ローダー自身が ARM64EC**（`windows-11-arm` の node.exe / python.exe 等、Machine 0xA641）で、**純 ARM64 DLL を `LoadLibrary` できない**（OS 仕様。[ARM64EC と純 ARM64 の互換性](https://learn.microsoft.com/en-us/windows/arm/arm64ec)） | CI では純 ARM64 の verify exe をビルド：`zig build-exe -target aarch64-windows-gnu -O ReleaseSafe scripts/verify_win_dll_load.zig -femit-bin=verify_win_dll_load.exe`。続けて **`build-native.yml` の `Stage ARM64 CRT for verify`** で `vcruntime*.dll` 等を **`zig-out/windows-aarch64/`** に置き、**`./verify_win_dll_load.exe zig-out/windows-aarch64/libpict.dll`**（手元再現時も同順）。**test 1**（`LOAD_LIBRARY_AS_DATAFILE`）成功 = DLL は valid な ARM64 PE。**test 2**（`LoadLibraryEx` + altered search path）は CRT ステージ後も環境によっては失敗し得るが、スクリプトは **exit 0**（既知制約・`verify_win_dll_load.zig` 参照）。Node / Deno FFI は同理由でスキップ（§3.3 item 7）。恒久対応は Zig の `aarch64_ec-windows-msvc` サポート待ち |
+| **`Failed to load shared library`**（koffi、Windows x64） | 旧 koffi / 依存探索 | ルート **`koffi` を ^2.16 系**に上げる |
 | **`zig build lib-windows-arm64` が即失敗**（.lib が無い等） | **VS マルチコンフィグ**で `avif.lib` が **`lib/Release/`** にあり、`build.zig` の **`lib/avif.lib`** と不一致 | **`scripts/ci-normalize-libavif-msvc-libs.sh`** を CMake install の直後に実行 |
 
 ---
@@ -199,39 +189,21 @@
 - [x] artifact **`libpict-win32-x64`** → `npm/zigpix-win32-x64/` をアップロード  
 - [ ] **手動確認（推奨）**: ユーザー名など **非 ASCII を含むパス**上の `libpict.dll` を `ZIGPIX_LIB` で指定し、**Node / Bun / Deno からロード・実行**できること（日本語環境での退避用）  
 
-### M3 — Windows ARM64（二段階ゲート）
+### M3 — Windows ARM64（npm / CI 見送り）
 
-**ゲート A — ビルド＋検証成果物**
-
-- [x] **`build.zig`**: ターゲット **`aarch64-windows-msvc`**、`zig build lib-windows-arm64 -Davif=static` → **`zig-out/windows-aarch64/libpict.dll`**（`dest_sub_path` で **`libpict.dll`**）  
-- [x] **CI** `build-windows-arm64`（**`runs-on: windows-11-arm`**）で **libavif 静的ビルド → Zig DLL → `ci-verify-libpict-windows.sh`**  
-- [x] **artifact** `libpict-win32-arm64` → **`npm/zigpix-win32-arm64/`**（初回 npm 版は **0.2.1**）  
-
-**ゲート B — 実行検証（ホスト ARM64）**
-
-> **⚠ 既知制約（2026-04-17 確定）**: `windows-11-arm` ランナーの `node.exe` は **ARM64EC (Machine 0xA641)**。  
-> Zig 0.13.0 が生成する `libpict.dll` は **純 ARM64 (0xAA64)**。  
-> ARM64EC プロセスは純 ARM64 DLL を `LoadLibrary` できない（OS 仕様）。  
-> **恒久修正は Zig が `aarch64_ec-windows-msvc` ターゲットをサポートした時点で対応。**  
-> それまで FFI / E2E テストは CI でスキップし、DLL の validity は `LOAD_LIBRARY_AS_DATAFILE`（ゲート A の verify ステップ）で保証する。
-
-- [~] **`windows-11-arm` 上での Node + Deno の FFI / E2E** — **現在スキップ**（ARM64EC vs 純 ARM64 非互換。上記制約参照）。**Bun** は WoA 公式ビルドで FFI 非対応のため引き続きスキップ。  
-- [ ] **エンドユーザー実機**（Surface 等）での確認と、README / CHANGELOG での **`zigpix-win32-arm64` サポート表記**の最終文言（「CI 済み」→「実機確認済み」への格上げタイミング）  
-
-**撤退ライン**
-
-- [x] ARM optional は **0.2.1** でルート `optionalDependencies` に追加（他 OS は **0.2.0** のまま混在可）。実機ゲートが遅れる場合は README で **WoA を補足**する。  
+- [x] **`build.zig`**: **`lib-windows-arm64`** ステップは **維持**（`zig build lib-windows-arm64 -Davif=static` → **`zig-out/windows-aarch64/libpict.dll`**、手元・上級者向け）。  
+- [x] **`zigpix-win32-arm64` npm と `build-windows-arm64` CI** — **見送り**（2026-04）。理由: ARM64EC ホストと純 ARM64 DLL の FFI を CI で保証しづらい、Bun FFI が WoA で非対応、優先度。再開は別イシュー。  
 
 ### M4 — npm メタパッケージとバージョン
 
-- [x] ルート `package.json`: `version` **0.2.0**、`optionalDependencies` に **darwin / linux / win32-x64** を **0.2.0**、**`zigpix-win32-arm64`** を **0.2.1** で記載  
-- [x] 各 `npm/zigpix-*/package.json` — **win32-arm64 のみ 0.2.1**、他は **0.2.0**  
-- [x] `CHANGELOG.md` に 0.2.0 見出し（Windows x64・WSL2・VCRedist / Defender 注記）。**0.2.1 / WoA** はリリース時に追記  
+- [x] ルート `package.json`: **`optionalDependencies` は 3 件**（`zigpix-darwin-arm64` / `zigpix-linux-x64` / `zigpix-win32-x64`）。バージョンは **同一（例: 0.2.0）**で揃える。  
+- [x] 各 `npm/zigpix-*/package.json` の **`version`** をルートと整合  
+- [x] `CHANGELOG.md` に Windows x64・WSL2・VCRedist / Defender 注記。**WoA npm は載せない**旨を明記  
 
 ### M5 — リリース手順の更新
 
-- [x] `docs/release.md` の用語表・artifact 名・`gh run download` 例・**publish 順**に **Windows x64** を追記（ARM64 はパッケージ追加後に同ファイルへ追記）  
-- [x] **publish 順**: **`zigpix-darwin-arm64` → `zigpix-linux-x64` → `zigpix-win32-x64` → `zigpix-win32-arm64`（0.2.1）→ ルート `zigpix`**（ルートを **0.2.1** に上げるリリースで optional 4 件を揃える運用を推奨）  
+- [x] `docs/release.md` の用語表・artifact・**publish 順**は **3 optional + ルート**のみ  
+- [x] **publish 順**: **`zigpix-darwin-arm64` → `zigpix-linux-x64` → `zigpix-win32-x64` → ルート `zigpix`**  
 
 ### M6 — README / 運用（UX）
 
@@ -245,8 +217,8 @@
 
 1. **`main`（またはマージ予定ブランチ）**で、**Windows x64** の CI が **ビルド＋シンボル検証＋ Node/Bun/Deno テスト**まで緑（必須チェックに含める）。  
 2. **AVIF を含む**既存の FFI / E2E が **Node・Bun・Deno** で **Windows x64** 上で通る。  
-3. **Windows ARM64**: **ゲート A**（`lib-windows-arm64` + artifact + `LOAD_LIBRARY_AS_DATAFILE` verify）を満たすこと。**ゲート B（FFI/E2E）は現時点でスキップ**（ARM64EC vs 純 ARM64 非互換。§4 M3 の既知制約参照）。エンドユーザー実機での確認は Zig ARM64EC 対応後に改めて実施し、CHANGELOG / README で明示する。  
-4. **手動リリース手順**（`docs/release.md`）に従い、**optional サブパッケージを先に publish → 最後にルート `zigpix`**。ARM64 を含めるリリースでは **`zigpix-win32-arm64@0.2.1` を win32-x64 の次に publish**し、ルートの `optionalDependencies` と **バージョン（例: 0.2.1）**を整合させる。  
+3. **Windows on ARM64**: **npm 同梱・`build-windows-arm64` CI は対象外**（§3.3 M3）。利用者向け文言は README / CHANGELOG で **x64 のみ公式**と明示する。  
+4. **手動リリース手順**（`docs/release.md`）に従い、**3 件の optional を先に publish → 最後にルート `zigpix`**。  
 
 ---
 
@@ -255,7 +227,7 @@
 | リスク | 対応の目安 |
 |--------|------------|
 | **libaom / libavif の Windows 静的ビルド**が時間制限やディスクで CI 不安定 | キャッシュ、ビルド並列の抑制、ジョブ分割の検討 |
-| **ARM64 ランナー**がプラン・キューで遅い / 利用不可 | **クロスビルド（ゲート A）のみ 0.2.0 に含め**、実行検証（ゲート B）は **0.2.1** へ |
+| **Windows on ARM の需要**が出た | **別イシュー**で optional / CI / Zig ARM64EC 対応を再検討（§3.3） |
 | **CRT / VCRedist** 不足でユーザー環境のみ失敗 | README を確定文で明記し、issue テンプレに環境欄 |
 | **Defender / SmartScreen** が DLL をブロック | README の M6 注記、必要ならコード署名を将来検討（本計画の必須にはしない） |
 
@@ -284,3 +256,4 @@
 | 2026-04-16 | **1.6**: **`zigpix` と `zigpix-wasm` のバージョンは揃えなくてよい**旨を `docs/release.md` §1.4 / Phase 2、`docs/operations.md` §8、`docs/README.md` に追記。`gh run download` 前の **`rm -rf /tmp/libpict-*`** を `release.md` に追記。本書先頭のブランチ表記を **`main`** に更新 |
 | 2026-04-17 | **1.7**: ARM64EC 非互換を既知制約として整理。§2.3 に x64/ARM64 の分岐注記を追加。§3 npm 表のバージョンを 0.2.0/0.2.1 で明示。§3.3 item 7 を「FFI/E2E すべてスキップ」に更新。§4 M3 ゲート B に制約ブロックを追加。§5 完了定義を「ゲート B スキップ」に修正。トラブルシュート表の Bun 行・ARM64EC 行を現在の CI 実態（verify コマンド含む）に合わせ更新。目次に §3.3 を追加 |
 | 2026-04-17 | **1.7.1**: 文書先頭の改訂番号を **1.7** に修正（表紙が 1.6 のまま残っていた件）。§3.3 の手順 6 に **CRT ステージ + verify exe 実行**を追記。トラブルシュート ARM64EC 行を **`build-native.yml` のステージ手順**と test 2 の扱いに合わせ更新 |
+| 2026-04-17 | **1.8**: **WoA npm / CI 見送り**（`zigpix-win32-arm64` 削除、`build-windows-arm64` 削除、optional 3 件、§0・§3・§4 M3〜M5・§5・§6・トラブルシュートを現方針に更新） |

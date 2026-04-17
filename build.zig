@@ -225,7 +225,7 @@ pub fn build(b: *std.Build) void {
         .dest_sub_path = "libpict.dll",
     }).step);
 
-    // ── Shared library Windows aarch64 MSVC (FFI: CI windows-11-arm 等) ───────
+    // ── Shared library Windows aarch64 MSVC（手元ビルド用。npm / CI 未同梱）────
     const ffi_lib_win_arm = b.addSharedLibrary(.{
         .name = "pict",
         .root_source_file = b.path("src/root.zig"),

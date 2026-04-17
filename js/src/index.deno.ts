@@ -29,7 +29,7 @@ import { fileURLToPath } from "node:url";
 import process from "node:process";
 
 // ── Library path resolution ───────────────────────────────────────────────────
-// 解決順は index.ts の resolveLibPath と同じ（ZIGPIX_LIB → ../../zig-out → optional）。
+// 解決順は index.ts の resolveLibPath と同じ（ZIGPIX_LIB → ../../zig-out → optional。win32+arm64 は npm optional なし）。
 
 function resolveLibPath(): string {
   const plat = process.platform;
@@ -51,15 +51,22 @@ function resolveLibPath(): string {
   }
 
   const __dirname = dirname(fileURLToPath(import.meta.url));
-  const winHostArm64Ci = process.env.RUNNER_ARCH === "ARM64";
   const winZigOutDir =
-    plat === "win32" && (cpu === "arm64" || winHostArm64Ci) ? "windows-aarch64" : "windows-x86_64";
+    plat === "win32" && cpu === "arm64" ? "windows-aarch64" : "windows-x86_64";
   const zigOut =
     plat === "win32"
       ? join(__dirname, "../../zig-out", winZigOutDir, "libpict.dll")
       : join(__dirname, `../../zig-out/lib/libpict.${ext}`);
   if (existsSync(zigOut)) {
     return zigOut;
+  }
+
+  if (plat === "win32" && cpu === "arm64") {
+    throw new Error(
+      `zigpix: Windows on ARM64 向けの npm optional は提供していません。` +
+        `自前ビルドの zig-out/windows-aarch64/libpict.dll を置くか ZIGPIX_LIB で指定するか、` +
+        `x64 版 Node.js と zigpix-win32-x64 を利用してください。`,
+    );
   }
 
   try {
