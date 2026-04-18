@@ -7,6 +7,13 @@
 
 （次パッチ以降の差分をここに書く）
 
+## [0.2.4] - 2026-04-18
+
+### 変更
+
+- **npm 実行時依存**: **`sharp` を `dependencies` から削除**し、**`devDependencies` のみ**に置いた。比較ベンチ（`bench/bench.ts` / `bench/bench-quality.ts`）と開発者の `npm install` では引き続き sharp が入るが、**本番相当の `npm install --omit=dev` では sharp / libvips が入らない**。利用者のインストールが軽くなる。
+- **メタ＋ optional のバージョン**を **0.2.4** に揃えた。**ネイティブバイナリの中身は 0.2.3 と同一**でよい（`docs/release.md` の手順で optional を publish する際は **0.2.3 と同じ build-native の緑 RUN_ID** の artifact を流用してよい）。
+
 ## [0.2.3] - 2026-04-17
 
 ### 変更

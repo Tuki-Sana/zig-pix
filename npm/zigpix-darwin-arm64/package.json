@@ -1,6 +1,6 @@
 {
   "name": "zigpix-darwin-arm64",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "zigpix native binary for macOS Apple Silicon (arm64)",
   "os": ["darwin"],
   "cpu": ["arm64"],

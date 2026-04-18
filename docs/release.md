@@ -23,6 +23,29 @@
 
 ---
 
+## Phase 0 — コミットと `main` への push
+
+**npm publish より先に**、バージョン・CHANGELOG・README・各 `npm/zigpix-*/package.json` を **コミットして `origin/main` に push** する。タグは **このコミット**に打つと後から追いやすい。
+
+1. `git status` で **ベンチ成果物や `.vscode/` が混ざっていない**ことを確認（不要なら `.gitignore` 済みか、コミット対象から外す）。
+2. リリースに含めるファイルだけを add する（例）:
+
+   ```bash
+   git add package.json CHANGELOG.md README.md npm/zigpix-darwin-arm64/package.json \
+     npm/zigpix-darwin-x64/package.json npm/zigpix-linux-x64/package.json npm/zigpix-win32-x64/package.json
+   ```
+
+3. コミット・push:
+
+   ```bash
+   git commit -m "chore(release): zigpix 0.2.4 — メタと optional の版上げ（例）"
+   git push origin main
+   ```
+
+4. **Build native binaries** が **`main` で緑**になるまで待つ（事前チェックと同じ）。
+
+---
+
 ## Phase 1 — ネイティブ `zigpix`（optional → メタパッケージ）
 
 **通常**: `zigpix-darwin-arm64` / **`zigpix-darwin-x64`** / `zigpix-linux-x64` / **`zigpix-win32-x64`** を **ルートより先に** publish してからルート `zigpix`。詳細は **`docs/windows-rollout-plan.md` §4 M3 / M5**。
@@ -109,7 +132,40 @@ npm view zigpix-win32-x64 version
 
 バージョンが意図した値と一致していれば Phase 1 完了。
 
-### 1.4 `zigpix-wasm` とのバージョン（方針）
+### 1.4 Git タグと GitHub Release（推奨）
+
+**npm publish が成功したあと**、**そのリリースに対応する `main` のコミット**（通常は Phase 0 で push した先頭）にタグを打ち、GitHub Release を作る。順序を崩すと「タグはあるが npm に無い」「npm だけ先でタグ忘れ」になりやすい。
+
+1. ルート `package.json` の `version` を変数に合わせる（例 `0.2.4`）:
+
+   ```bash
+   VERSION=$(node -p "require('./package.json').version")
+   echo "$VERSION"
+   ```
+
+2. **アノテーションタグ**を付けて push（リモートにタグが無いことを確認してから）:
+
+   ```bash
+   git switch main && git pull origin main
+   git tag -a "v${VERSION}" -m "zigpix ${VERSION}"
+   git push origin "v${VERSION}"
+   ```
+
+3. **GitHub Release**（`gh` CLI。未ログインなら `gh auth login`）:
+
+   ```bash
+   gh release create "v${VERSION}" \
+     --title "zigpix ${VERSION}" \
+     --generate-notes
+   ```
+
+   `--generate-notes` で PR 要約が付く。手書きにする場合は `--notes "…"` または `--notes-file path.md`。
+
+4. **確認**: リポジトリの **Releases** に `v${VERSION}` が表示され、タグがそのコミットを指していること。
+
+**よくある順序（スムーズな一本線）**: Phase 0（コミット・push・CI 緑）→ Phase 1.1（libpict 配置）→ 1.2（`npm publish`）→ 1.3（`npm view`）→ **1.4（タグ・Release）**。
+
+### 1.5 `zigpix-wasm` とのバージョン（方針）
 
 **`zigpix`（ルート + ネイティブ optional）と `zigpix-wasm` は npm 上で別パッケージ**であり、**セマンティックバージョンを揃える必要はない**。ネイティブだけ変更があるリリースでは **Phase 2 をスキップしてよい**。ブラウザ向け WASM に変更があるときだけ **`wasm/`** を更新し、Phase 2 で `zigpix-wasm` を publish する。無理に同じ番号へ揃えると、**片方だけ意味のないバンプ**が必要になりやすい。
 
@@ -117,7 +173,7 @@ npm view zigpix-win32-x64 version
 
 ## Phase 2 — `zigpix-wasm`（ブラウザ用を上げる場合のみ）
 
-**スキップする場合**: ネイティブだけ上げる運用なら Phase 2 は行わない（§1.4）。**`zigpix` のバージョンと一致させなくてよい**。
+**スキップする場合**: ネイティブだけ上げる運用なら Phase 2 は行わない（§1.5）。**`zigpix` のバージョンと一致させなくてよい**。
 
 ### 2.1 `wasm/dist/` を用意する（どちらか一方）
 

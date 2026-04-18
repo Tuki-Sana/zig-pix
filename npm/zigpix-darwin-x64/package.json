@@ -1,6 +1,6 @@
 {
   "name": "zigpix-darwin-x64",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "zigpix native binary for macOS Intel (x64)",
   "os": ["darwin"],
   "cpu": ["x64"],

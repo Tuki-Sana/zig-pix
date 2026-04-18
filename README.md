@@ -267,7 +267,7 @@ macOS aarch64 (Apple M) / ReleaseFast
 ```bash
 zig build lib
 npm run build          # bench を計測する場合のみ必須（js/dist/index.js）
-# npm install sharp    # bench 行の RSS を取る場合
+# bench 行の RSS を取る場合はルートで npm install（sharp は devDependencies）
 bash scripts/mem-peak.sh
 ```
 
@@ -277,7 +277,7 @@ bash scripts/mem-peak.sh
 | シナリオ | Max RSS (kB) | 備考 |
 |----------|---------------:|------|
 | FFI `bun run test/ffi/test.ts` | **43536** | Linux x86_64 VPS 実測（`zig build lib` 済み・Bun・`scripts/mem-peak.sh`）。8 件の FFI 結合テスト 1 プロセスのピーク（Bun + koffi + libpict を含む）。同一条件でも数千 kB 程度ブレ得 |
-| `npx tsx bench/bench.ts` | **135356** | Linux x86_64 VPS 実測（`npm run build` 済み・`sharp` 同梱）。**旧** `bench/bench.ts`（512×512→256×256 の単一シナリオ）当時の 1 実行ピーク。現行スクリプトは **FHD / WQHD / 4K 相当の 3 シナリオ**のため、ピーク RSS は `scripts/mem-peak.sh` での **再計測を推奨**（Node/tsx + 両ネイティブ） |
+| `npx tsx bench/bench.ts` | **135356** | Linux x86_64 VPS 実測（`npm run build` 済み・**devDependencies の sharp** を含む通常 `npm install` 下）。**旧** `bench/bench.ts`（512×512→256×256 の単一シナリオ）当時の 1 実行ピーク。現行スクリプトは **FHD / WQHD / 4K 相当の 3 シナリオ**のため、ピーク RSS は `scripts/mem-peak.sh` での **再計測を推奨**（Node/tsx + 両ネイティブ） |
 
 上表の FFI 値は **本番アプリのプロセスと同一ではない**（計測対象はテストスイートのみ）。傾向把握・リグレッション比較用。
 
