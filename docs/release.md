@@ -151,17 +151,41 @@ npm view zigpix-win32-x64 version
    git push origin "v${VERSION}"
    ```
 
-3. **GitHub Release**（`gh` CLI。未ログインなら `gh auth login`）:
+3. **GitHub Release**（`gh` CLI。未ログインなら `gh auth login`）。**本文は `CHANGELOG.md` の該当バージョン節と揃える**（`--generate-notes` だけだとコミット要約になり、利用者向けの説明が薄くなりがち）。
+
+   リポジトリルートで、まず `VERSION` を取る:
 
    ```bash
-   gh release create "v${VERSION}" \
-     --title "zigpix ${VERSION}" \
-     --generate-notes
+   VERSION=$(node -p "require('./package.json').version")
    ```
 
-   `--generate-notes` で PR 要約が付く。手書きにする場合は `--notes "…"` または `--notes-file path.md`。
+   **推奨（Python 3 で CHANGELOG 節を抽出）**:
 
-4. **確認**: リポジトリの **Releases** に `v${VERSION}` が表示され、タグがそのコミットを指していること。
+   ```bash
+   python3 <<'PY' > /tmp/zigpix-release-notes.md
+   import json, pathlib, re
+   v = json.loads(pathlib.Path("package.json").read_text(encoding="utf-8"))["version"]
+   md = pathlib.Path("CHANGELOG.md").read_text(encoding="utf-8")
+   parts = re.split(r"(?m)^## \[", md)
+   body = None
+   for p in parts[1:]:
+       if p.startswith(f"{v}]"):
+           body = "## [" + p
+           break
+   print((body or f"# zigpix {v}\n\nCHANGELOG に ## [{v}] がありません。").strip())
+   PY
+   gh release create "v${VERSION}" --title "zigpix ${VERSION}" --notes-file /tmp/zigpix-release-notes.md
+   ```
+
+   **手動でも可**: `CHANGELOG.md` の `## [X.Y.Z]` から次の `## [` 直前までをコピーし、`/tmp/zigpix-release-notes.md` に貼ってから上記の `gh release create … --notes-file` を実行する。
+
+   **すでに `--generate-notes` だけで Release を作ってしまった場合**（本文を差し替えたいとき）:
+
+   ```bash
+   gh release edit "v${VERSION}" --notes-file /tmp/zigpix-release-notes.md
+   ```
+
+4. **確認**: リポジトリの **Releases** に `v${VERSION}` が表示され、本文が CHANGELOG と整合し、タグがそのコミットを指していること。
 
 **よくある順序（スムーズな一本線）**: Phase 0（コミット・push・CI 緑）→ Phase 1.1（libpict 配置）→ 1.2（`npm publish`）→ 1.3（`npm view`）→ **1.4（タグ・Release）**。
 
