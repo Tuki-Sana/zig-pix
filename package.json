@@ -41,7 +41,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Tuki-Sana/zig-pix.git"
+    "url": "https://github.com/Tuki-Sana/zenpix.git"
   },
   "optionalDependencies": {
     "zenpix-darwin-arm64": "0.2.4",
