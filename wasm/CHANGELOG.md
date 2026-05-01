@@ -2,6 +2,13 @@
 
 [`zenpix-wasm`](https://www.npmjs.com/package/zenpix-wasm)（ブラウザ向け AVIF エンコード専用）の利用者向け差分。ルートの `zenpix`（ネイティブ）とは別パッケージ。
 
+## [0.3.0] - 2026-05-01
+
+### 変更
+
+- **パッケージリネーム**: `zigpix-wasm` → `zenpix-wasm`。旧パッケージは deprecated 済み。`npm install zenpix-wasm` で移行してください。
+- **WASM バイナリ・API に変更なし**。
+
 ## [0.1.5] - 2026-04-15
 
 ### 変更
