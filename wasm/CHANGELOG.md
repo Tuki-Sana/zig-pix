@@ -2,7 +2,7 @@
 
 [`zenpix-wasm`](https://www.npmjs.com/package/zenpix-wasm)（ブラウザ向け AVIF エンコード専用）の利用者向け差分。ルートの `zenpix`（ネイティブ）とは別パッケージ。
 
-## [0.3.0] - 2026-05-01
+## [0.2.0] - 2026-05-01
 
 ### 変更
 
