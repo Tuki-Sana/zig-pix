@@ -1,5 +1,7 @@
 # zenpix
 
+![zenpix](assets/zenpix-banner.jpg)
+
 **npm:** [zenpix](https://www.npmjs.com/package/zenpix)（Node / Bun / Deno・ネイティブ） · [zenpix-wasm](https://www.npmjs.com/package/zenpix-wasm)（ブラウザ向け AVIF エンコード）
 
 Zig 製の高速画像処理ライブラリです。  
