@@ -1,6 +1,6 @@
-# zigpix-wasm（ブラウザ向け AVIF）— Emscripten ビルドのみ。
+# zenpix-wasm（ブラウザ向け AVIF）— Emscripten ビルドのみ。
 # build-native とは分離。push では回さず、必要なときだけ手動実行する。
-name: Build WASM (zigpix-wasm)
+name: Build WASM (zenpix-wasm)
 
 on:
   workflow_dispatch:
@@ -47,6 +47,6 @@ jobs:
       - name: Upload wasm/dist
         uses: actions/upload-artifact@v4
         with:
-          name: zigpix-wasm-dist
+          name: zenpix-wasm-dist
           path: wasm/dist/
           retention-days: 14

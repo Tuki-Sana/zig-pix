@@ -42,13 +42,13 @@ jobs:
       - name: Build libpict.so (static avif)
         run: zig build lib -Doptimize=ReleaseFast -Davif=static
 
-      - name: Install Node.js deps (zigpix + sharp devDependency)
+      - name: Install Node.js deps (zenpix + sharp devDependency)
         run: npm install
 
       - name: Build JS wrapper (js/dist/)
         run: npm run build
 
-      - name: Run benchmark (zigpix vs sharp, FHD / WQHD / 4K 相当)
+      - name: Run benchmark (zenpix vs sharp, FHD / WQHD / 4K 相当)
         env:
           # Full multi-fixture matrix is default locally; CI keeps bench_input only for time/artifact size.
           BENCH_FIXTURES: bench_input
