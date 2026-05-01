@@ -36,3 +36,5 @@ test/fixtures/bench_chara_*.png
 
 # OS
 .DS_Store
+
+review/
