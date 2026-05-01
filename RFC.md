@@ -1,4 +1,4 @@
-# RFC: zigpix (High-Performance Image Pipeline)
+# RFC: zenpix (High-Performance Image Pipeline)
 
 ## 1. 概要
 
@@ -7,7 +7,7 @@
 ## 2. ターゲット環境と実行形式
 
 - **Primary (Native):** Linux VPS (vCPU: 2コア / RAM: 2GB) - Linux x86_64 バイナリ。
-- **Secondary (Browser):** Cloudflare Pages など静的ホスティング - ブラウザ側 WebAssembly（`zigpix-wasm`）。
+- **Secondary (Browser):** Cloudflare Pages など静的ホスティング - ブラウザ側 WebAssembly（`zenpix-wasm`）。
 - **Development:** Mac (Apple Silicon) - クロスコンパイルを前提とする。
 
 > **Cloudflare Workers (Edge) はスコープ外。**  

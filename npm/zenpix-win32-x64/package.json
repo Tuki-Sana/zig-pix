@@ -1,7 +1,7 @@
 {
-  "name": "zigpix-win32-x64",
+  "name": "zenpix-win32-x64",
   "version": "0.2.4",
-  "description": "zigpix native binary for Windows x64 (MSVC)",
+  "description": "zenpix native binary for Windows x64 (MSVC)",
   "os": ["win32"],
   "cpu": ["x64"],
   "files": ["libpict.dll", "LICENSE", "THIRD_PARTY_LICENSES"],

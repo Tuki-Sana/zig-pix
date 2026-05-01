@@ -1,6 +1,6 @@
 # リリース手順（`main` へ push 済み → npm 公開まで）
 
-**このファイルを上から順に実行すれば、ネイティブ `zigpix` と（必要なら）`zigpix-wasm` を npm に出せる**ように書いてある。  
+**このファイルを上から順に実行すれば、ネイティブ `zenpix` と（必要なら）`zenpix-wasm` を npm に出せる**ように書いてある。  
 機密（npm トークン、`.npmrc`）はコミットしない。
 
 ## 用語
@@ -8,15 +8,15 @@
 | 名前 | 意味 |
 |------|------|
 | **build-native** | GitHub Actions「Build native binaries」（`build-native.yml`）。成果物: `libpict-darwin-arm64` / **`libpict-darwin-x64`** / `libpict-linux-x64` / **`libpict-win32-x64`** |
-| **build-wasm** | GitHub Actions「Build WASM」（`build-wasm.yml`、手動）。成果物: `zigpix-wasm-dist` |
+| **build-wasm** | GitHub Actions「Build WASM」（`build-wasm.yml`、手動）。成果物: `zenpix-wasm-dist` |
 | **RUN_ID** | GitHub Actions の run の **database id**（URL `.../actions/runs/12345` の `12345`）。**native と wasm で別の run になる** |
 
 ## 事前チェック（ここを飛ばさない）
 
 - [ ] 変更は **`main` にマージ済み**で、意図したコミットが先頭
 - [ ] **Build native binaries** が **`main` で緑**（失敗 run の artifact は使わない）
-- [ ] ルート `package.json` の `version` と `optionalDependencies`、および `npm/zigpix-*/package.json` の `version` が **意図どおり**（通常は **すべて同じ**番号）
-- [ ] **`zigpix-wasm` も上げる**なら `wasm/package.json` の `version` と **`wasm/CHANGELOG.md`** も揃えてある
+- [ ] ルート `package.json` の `version` と `optionalDependencies`、および `npm/zenpix-*/package.json` の `version` が **意図どおり**（通常は **すべて同じ**番号）
+- [ ] **`zenpix-wasm` も上げる**なら `wasm/package.json` の `version` と **`wasm/CHANGELOG.md`** も揃えてある
 - [ ] ルート **`CHANGELOG.md`** にそのバージョンの見出しと箇条書きがある
 - [ ] 手元: **`gh` が GitHub にログイン済み**（`gh auth status`）、**`npm whoami`** が通る
 - [ ] 作業ディレクトリは **リポジトリルート**（以下、特に記載がなければルート）
@@ -25,20 +25,20 @@
 
 ## Phase 0 — コミットと `main` への push
 
-**npm publish より先に**、バージョン・CHANGELOG・README・各 `npm/zigpix-*/package.json` を **コミットして `origin/main` に push** する。タグは **このコミット**に打つと後から追いやすい。
+**npm publish より先に**、バージョン・CHANGELOG・README・各 `npm/zenpix-*/package.json` を **コミットして `origin/main` に push** する。タグは **このコミット**に打つと後から追いやすい。
 
 1. `git status` で **ベンチ成果物や `.vscode/` が混ざっていない**ことを確認（不要なら `.gitignore` 済みか、コミット対象から外す）。
 2. リリースに含めるファイルだけを add する（例）:
 
    ```bash
-   git add package.json CHANGELOG.md README.md npm/zigpix-darwin-arm64/package.json \
-     npm/zigpix-darwin-x64/package.json npm/zigpix-linux-x64/package.json npm/zigpix-win32-x64/package.json
+   git add package.json CHANGELOG.md README.md npm/zenpix-darwin-arm64/package.json \
+     npm/zenpix-darwin-x64/package.json npm/zenpix-linux-x64/package.json npm/zenpix-win32-x64/package.json
    ```
 
 3. コミット・push:
 
    ```bash
-   git commit -m "chore(release): zigpix 0.2.4 — メタと optional の版上げ（例）"
+   git commit -m "chore(release): zenpix 0.2.4 — メタと optional の版上げ（例）"
    git push origin main
    ```
 
@@ -46,11 +46,11 @@
 
 ---
 
-## Phase 1 — ネイティブ `zigpix`（optional → メタパッケージ）
+## Phase 1 — ネイティブ `zenpix`（optional → メタパッケージ）
 
-**通常**: `zigpix-darwin-arm64` / **`zigpix-darwin-x64`** / `zigpix-linux-x64` / **`zigpix-win32-x64`** を **ルートより先に** publish してからルート `zigpix`。詳細は **`docs/windows-rollout-plan.md` §4 M3 / M5**。
+**通常**: `zenpix-darwin-arm64` / **`zenpix-darwin-x64`** / `zenpix-linux-x64` / **`zenpix-win32-x64`** を **ルートより先に** publish してからルート `zenpix`。詳細は **`docs/windows-rollout-plan.md` §4 M3 / M5**。
 
-### 1.1 `libpict` を CI 成果物で `npm/zigpix-*/` に置く
+### 1.1 `libpict` を CI 成果物で `npm/zenpix-*/` に置く
 
 **同じ** build-native の **1 つの RUN_ID** から、**darwin arm64 / darwin x64 / linux / win32-x64** の artifact を取る（ジョブは並列だが run は共通）。
 
@@ -90,44 +90,44 @@
 4. `npm/` へコピー:
 
    ```bash
-   cp /tmp/libpict-darwin-arm64/libpict.dylib npm/zigpix-darwin-arm64/
-   cp /tmp/libpict-darwin-x64/libpict.dylib npm/zigpix-darwin-x64/
-   cp /tmp/libpict-linux-x64/libpict.so npm/zigpix-linux-x64/
-   cp /tmp/libpict-win32-x64/libpict.dll npm/zigpix-win32-x64/
-   cp LICENSE THIRD_PARTY_LICENSES npm/zigpix-darwin-arm64/
-   cp LICENSE THIRD_PARTY_LICENSES npm/zigpix-darwin-x64/
-   cp LICENSE THIRD_PARTY_LICENSES npm/zigpix-linux-x64/
-   cp LICENSE THIRD_PARTY_LICENSES npm/zigpix-win32-x64/
+   cp /tmp/libpict-darwin-arm64/libpict.dylib npm/zenpix-darwin-arm64/
+   cp /tmp/libpict-darwin-x64/libpict.dylib npm/zenpix-darwin-x64/
+   cp /tmp/libpict-linux-x64/libpict.so npm/zenpix-linux-x64/
+   cp /tmp/libpict-win32-x64/libpict.dll npm/zenpix-win32-x64/
+   cp LICENSE THIRD_PARTY_LICENSES npm/zenpix-darwin-arm64/
+   cp LICENSE THIRD_PARTY_LICENSES npm/zenpix-darwin-x64/
+   cp LICENSE THIRD_PARTY_LICENSES npm/zenpix-linux-x64/
+   cp LICENSE THIRD_PARTY_LICENSES npm/zenpix-win32-x64/
    ```
 
 5. **再確認**:
 
    ```bash
-   ls -la npm/zigpix-darwin-arm64/libpict.dylib npm/zigpix-darwin-x64/libpict.dylib npm/zigpix-linux-x64/libpict.so npm/zigpix-win32-x64/libpict.dll
+   ls -la npm/zenpix-darwin-arm64/libpict.dylib npm/zenpix-darwin-x64/libpict.dylib npm/zenpix-linux-x64/libpict.so npm/zenpix-win32-x64/libpict.dll
    ```
 
-**GitHub の UI だけ使う場合**: 該当 run の **Artifacts** から `libpict-darwin-arm64` / **`libpict-darwin-x64`** / `libpict-linux-x64` / **`libpict-win32-x64`** の zip を落とし、展開して同様に `npm/zigpix-*/` へ **dylib / so / dll** と **LICENSE / THIRD_PARTY_LICENSES** を置く。
+**GitHub の UI だけ使う場合**: 該当 run の **Artifacts** から `libpict-darwin-arm64` / **`libpict-darwin-x64`** / `libpict-linux-x64` / **`libpict-win32-x64`** の zip を落とし、展開して同様に `npm/zenpix-*/` へ **dylib / so / dll** と **LICENSE / THIRD_PARTY_LICENSES** を置く。
 
 ### 1.2 publish 順（**この順序を守る**）
 
-optional が先にレジストリに無いと、ルート `zigpix` だけ先に上げたユーザーが `npm install` で失敗する。
+optional が先にレジストリに無いと、ルート `zenpix` だけ先に上げたユーザーが `npm install` で失敗する。
 
 ```bash
-cd npm/zigpix-darwin-arm64 && npm publish --access public && cd ../..
-cd npm/zigpix-darwin-x64 && npm publish --access public && cd ../..
-cd npm/zigpix-linux-x64 && npm publish --access public && cd ../..
-cd npm/zigpix-win32-x64 && npm publish --access public && cd ../..
+cd npm/zenpix-darwin-arm64 && npm publish --access public && cd ../..
+cd npm/zenpix-darwin-x64 && npm publish --access public && cd ../..
+cd npm/zenpix-linux-x64 && npm publish --access public && cd ../..
+cd npm/zenpix-win32-x64 && npm publish --access public && cd ../..
 npm publish --access public
 ```
 
 ### 1.3 公開後の確認（任意だが推奨）
 
 ```bash
-npm view zigpix version
-npm view zigpix-darwin-arm64 version
-npm view zigpix-darwin-x64 version
-npm view zigpix-linux-x64 version
-npm view zigpix-win32-x64 version
+npm view zenpix version
+npm view zenpix-darwin-arm64 version
+npm view zenpix-darwin-x64 version
+npm view zenpix-linux-x64 version
+npm view zenpix-win32-x64 version
 ```
 
 バージョンが意図した値と一致していれば Phase 1 完了。
@@ -147,7 +147,7 @@ npm view zigpix-win32-x64 version
 
    ```bash
    git switch main && git pull origin main
-   git tag -a "v${VERSION}" -m "zigpix ${VERSION}"
+   git tag -a "v${VERSION}" -m "zenpix ${VERSION}"
    git push origin "v${VERSION}"
    ```
 
@@ -162,7 +162,7 @@ npm view zigpix-win32-x64 version
    **推奨（Python 3 で CHANGELOG 節を抽出）**:
 
    ```bash
-   python3 <<'PY' > /tmp/zigpix-release-notes.md
+   python3 <<'PY' > /tmp/zenpix-release-notes.md
    import json, pathlib, re
    v = json.loads(pathlib.Path("package.json").read_text(encoding="utf-8"))["version"]
    md = pathlib.Path("CHANGELOG.md").read_text(encoding="utf-8")
@@ -172,32 +172,32 @@ npm view zigpix-win32-x64 version
        if p.startswith(f"{v}]"):
            body = "## [" + p
            break
-   print((body or f"# zigpix {v}\n\nCHANGELOG に ## [{v}] がありません。").strip())
+   print((body or f"# zenpix {v}\n\nCHANGELOG に ## [{v}] がありません。").strip())
    PY
-   gh release create "v${VERSION}" --title "zigpix ${VERSION}" --notes-file /tmp/zigpix-release-notes.md
+   gh release create "v${VERSION}" --title "zenpix ${VERSION}" --notes-file /tmp/zenpix-release-notes.md
    ```
 
-   **手動でも可**: `CHANGELOG.md` の `## [X.Y.Z]` から次の `## [` 直前までをコピーし、`/tmp/zigpix-release-notes.md` に貼ってから上記の `gh release create … --notes-file` を実行する。
+   **手動でも可**: `CHANGELOG.md` の `## [X.Y.Z]` から次の `## [` 直前までをコピーし、`/tmp/zenpix-release-notes.md` に貼ってから上記の `gh release create … --notes-file` を実行する。
 
    **すでに `--generate-notes` だけで Release を作ってしまった場合**（本文を差し替えたいとき）:
 
    ```bash
-   gh release edit "v${VERSION}" --notes-file /tmp/zigpix-release-notes.md
+   gh release edit "v${VERSION}" --notes-file /tmp/zenpix-release-notes.md
    ```
 
 4. **確認**: リポジトリの **Releases** に `v${VERSION}` が表示され、本文が CHANGELOG と整合し、タグがそのコミットを指していること。
 
 **よくある順序（スムーズな一本線）**: Phase 0（コミット・push・CI 緑）→ Phase 1.1（libpict 配置）→ 1.2（`npm publish`）→ 1.3（`npm view`）→ **1.4（タグ・Release）**。
 
-### 1.5 `zigpix-wasm` とのバージョン（方針）
+### 1.5 `zenpix-wasm` とのバージョン（方針）
 
-**`zigpix`（ルート + ネイティブ optional）と `zigpix-wasm` は npm 上で別パッケージ**であり、**セマンティックバージョンを揃える必要はない**。ネイティブだけ変更があるリリースでは **Phase 2 をスキップしてよい**。ブラウザ向け WASM に変更があるときだけ **`wasm/`** を更新し、Phase 2 で `zigpix-wasm` を publish する。無理に同じ番号へ揃えると、**片方だけ意味のないバンプ**が必要になりやすい。
+**`zenpix`（ルート + ネイティブ optional）と `zenpix-wasm` は npm 上で別パッケージ**であり、**セマンティックバージョンを揃える必要はない**。ネイティブだけ変更があるリリースでは **Phase 2 をスキップしてよい**。ブラウザ向け WASM に変更があるときだけ **`wasm/`** を更新し、Phase 2 で `zenpix-wasm` を publish する。無理に同じ番号へ揃えると、**片方だけ意味のないバンプ**が必要になりやすい。
 
 ---
 
-## Phase 2 — `zigpix-wasm`（ブラウザ用を上げる場合のみ）
+## Phase 2 — `zenpix-wasm`（ブラウザ用を上げる場合のみ）
 
-**スキップする場合**: ネイティブだけ上げる運用なら Phase 2 は行わない（§1.5）。**`zigpix` のバージョンと一致させなくてよい**。
+**スキップする場合**: ネイティブだけ上げる運用なら Phase 2 は行わない（§1.5）。**`zenpix` のバージョンと一致させなくてよい**。
 
 ### 2.1 `wasm/dist/` を用意する（どちらか一方）
 

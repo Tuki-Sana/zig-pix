@@ -7,7 +7,7 @@ const std = @import("std");
 //   zig build                        → Native dev binary (Mac ARM, Debug)
 //   zig build -Doptimize=ReleaseFast → Native release
 //   zig build linux                  → Linux x86_64 cross-compile (ReleaseFast)
-//   zig build wasm                   → WebAssembly / WASI (実験用; ネイティブ decode/ICC/WebP パス非搭載。npm zigpix-wasm は別系統)
+//   zig build wasm                   → WebAssembly / WASI (実験用; ネイティブ decode/ICC/WebP パス非搭載。npm zenpix-wasm は別系統)
 //   zig build lib                    → Shared library for FFI (.dylib / .so)
 //   zig build lib-linux              → Linux x86_64 shared library for FFI (.so)
 //   zig build lib-windows            → Windows x86_64 MSVC shared library for FFI (.dll, AVIF=static)
@@ -137,7 +137,7 @@ pub fn build(b: *std.Build) void {
     // ── WebAssembly / WASI ───────────────────────────────────────────────────
     // `zig build wasm` は Zig の root を wasm32-wasi にコンパイルする実験用ターゲット。
     // 現状この成果物は **ネイティブ FFI（libjpeg/libpng/libwebp 経由の decode・ICC・WebP encode）と同等の機能を持たない**。
-    // ブラウザ向け配布は npm の `zigpix-wasm`（Emscripten で libavif 静的リンクの AVIF エンコード専用）を正とする。
+    // ブラウザ向け配布は npm の `zenpix-wasm`（Emscripten で libavif 静的リンクの AVIF エンコード専用）を正とする。
     const wasm_exe = b.addExecutable(.{
         .name = "pict",
         .root_source_file = b.path("src/root.zig"),

@@ -209,54 +209,54 @@ zig build lib-linux
 zig llvm-nm -D zig-out/linux-x86_64/libpict.so | grep pict_encode_avif
 ```
 
-## 8) npm パッチリリース（`zigpix` と optional 同梱バイナリ）
+## 8) npm パッチリリース（`zenpix` と optional 同梱バイナリ）
 
 ### 正本
 
-**[`docs/release.md`](./release.md)** — `main` へ push 済みから **ネイティブ optional → ルート `zigpix`**、続けて **`zigpix-wasm`** までの **チェックリスト付き手順**（`RUN_ID` の取り違え防止、検証コマンド、よくあるミス）。
+**[`docs/release.md`](./release.md)** — `main` へ push 済みから **ネイティブ optional → ルート `zenpix`**、続けて **`zenpix-wasm`** までの **チェックリスト付き手順**（`RUN_ID` の取り違え防止、検証コマンド、よくあるミス）。
 
 ### ここだけ押さえる（詳細は release.md）
 
-- ルート `package.json` の `version` と `optionalDependencies`、`npm/zigpix-*/package.json` の `version` を **同一のバージョン番号**に揃える。
-- `libpict.dylib` / `libpict.so` / **`libpict.dll`** は **git 管理外**。publish 直前に **build-native の緑 run** から `npm/zigpix-*/` へ置く。
-- **publish 順**: `zigpix-darwin-arm64` → **`zigpix-darwin-x64`** → `zigpix-linux-x64` → **`zigpix-win32-x64`** → ルート **`zigpix`**（逆にすると `npm install zigpix` が失敗し得る）。
-- **`zigpix-wasm`**: ルート `zigpix` / optional とは **別パッケージ・別セマバ**（`wasm/package.json`）。ネイティブの publish と**同時に上げる必要はない**。詳細は **`docs/release.md` §1.4 と Phase 2**。
+- ルート `package.json` の `version` と `optionalDependencies`、`npm/zenpix-*/package.json` の `version` を **同一のバージョン番号**に揃える。
+- `libpict.dylib` / `libpict.so` / **`libpict.dll`** は **git 管理外**。publish 直前に **build-native の緑 run** から `npm/zenpix-*/` へ置く。
+- **publish 順**: `zenpix-darwin-arm64` → **`zenpix-darwin-x64`** → `zenpix-linux-x64` → **`zenpix-win32-x64`** → ルート **`zenpix`**（逆にすると `npm install zenpix` が失敗し得る）。
+- **`zenpix-wasm`**: ルート `zenpix` / optional とは **別パッケージ・別セマバ**（`wasm/package.json`）。ネイティブの publish と**同時に上げる必要はない**。詳細は **`docs/release.md` §1.4 と Phase 2**。
 
 ### ローカル / CI で「今ビルドした lib」を使う
 
 `npm install` 済みの optional パッケージは **レジストリの古いバイナリ**を指すことがある。次で上書きすると、FFI / E2E が `zig-out` のビルドと一致する。
 
-**注意**: `package.json` の `optionalDependencies` が **まだ npm に無いバージョン**だと、optional は解決されず `node_modules/zigpix-*` が存在しない。その場合はディレクトリと `package.json` を先に置いてから `libpict` をコピーする（CI の **build-native** と同じ手順）。
+**注意**: `package.json` の `optionalDependencies` が **まだ npm に無いバージョン**だと、optional は解決されず `node_modules/zenpix-*` が存在しない。その場合はディレクトリと `package.json` を先に置いてから `libpict` をコピーする（CI の **build-native** と同じ手順）。
 
 ```bash
 # macOS Apple Silicon の例
-mkdir -p node_modules/zigpix-darwin-arm64
-cp npm/zigpix-darwin-arm64/package.json node_modules/zigpix-darwin-arm64/
-cp zig-out/lib/libpict.dylib node_modules/zigpix-darwin-arm64/libpict.dylib
+mkdir -p node_modules/zenpix-darwin-arm64
+cp npm/zenpix-darwin-arm64/package.json node_modules/zenpix-darwin-arm64/
+cp zig-out/lib/libpict.dylib node_modules/zenpix-darwin-arm64/libpict.dylib
 
 # macOS Intel（x64）の例（同一 zig-out/lib/libpict.dylib を Intel 上でビルドしたもの）
-mkdir -p node_modules/zigpix-darwin-x64
-cp npm/zigpix-darwin-x64/package.json node_modules/zigpix-darwin-x64/
-cp zig-out/lib/libpict.dylib node_modules/zigpix-darwin-x64/libpict.dylib
+mkdir -p node_modules/zenpix-darwin-x64
+cp npm/zenpix-darwin-x64/package.json node_modules/zenpix-darwin-x64/
+cp zig-out/lib/libpict.dylib node_modules/zenpix-darwin-x64/libpict.dylib
 
 # Linux x86_64 の例
-mkdir -p node_modules/zigpix-linux-x64
-cp npm/zigpix-linux-x64/package.json node_modules/zigpix-linux-x64/
-cp zig-out/lib/libpict.so node_modules/zigpix-linux-x64/libpict.so
+mkdir -p node_modules/zenpix-linux-x64
+cp npm/zenpix-linux-x64/package.json node_modules/zenpix-linux-x64/
+cp zig-out/lib/libpict.so node_modules/zenpix-linux-x64/libpict.so
 
 # Windows x64 の例（FFI / E2E を optional より zig-out に合わせるとき）
-mkdir -p node_modules/zigpix-win32-x64
-cp npm/zigpix-win32-x64/package.json node_modules/zigpix-win32-x64/
-cp zig-out/windows-x86_64/libpict.dll node_modules/zigpix-win32-x64/libpict.dll
+mkdir -p node_modules/zenpix-win32-x64
+cp npm/zenpix-win32-x64/package.json node_modules/zenpix-win32-x64/
+cp zig-out/windows-x86_64/libpict.dll node_modules/zenpix-win32-x64/libpict.dll
 ```
 
 既に optional が入っている環境では、`mkdir` / `package.json` のコピーは省略して **`libpict` の `cp` だけ**でもよい。
 
 CI の **build-native** でも `npm run build` の直後に上記と同等の overlay を実行している。
 
-## 9) `zigpix-wasm`（ブラウザ・Cloudflare Pages 向け AVIF）
+## 9) `zenpix-wasm`（ブラウザ・Cloudflare Pages 向け AVIF）
 
-ルートの **`zigpix`**（ネイティブ FFI）とは **別パッケージ** [`zigpix-wasm`](https://www.npmjs.com/package/zigpix-wasm)。Emscripten でビルドした **ブラウザ用 AVIF エンコード**のみ（小〜中画像向け。`decode` / リサイズ / WebP は含まない）。
+ルートの **`zenpix`**（ネイティブ FFI）とは **別パッケージ** [`zenpix-wasm`](https://www.npmjs.com/package/zenpix-wasm)。Emscripten でビルドした **ブラウザ用 AVIF エンコード**のみ（小〜中画像向け。`decode` / リサイズ / WebP は含まない）。
 
 ### リリース手順
 
@@ -264,12 +264,12 @@ CI の **build-native** でも `npm run build` の直後に上記と同等の ov
 
 ### バージョン方針（ネイティブと独立）
 
-- **`wasm/package.json` の `version` が `zigpix-wasm` のセマバ**であり、**`zigpix` と同期させる必要はない**。
+- **`wasm/package.json` の `version` が `zenpix-wasm` のセマバ**であり、**`zenpix` と同期させる必要はない**。
 - 見た目を揃えたいリリースでは、運用で同じ番号にしてもよい（必須ではない）。
 
 ### CI（手動のみ・`build-native` とは別ワークフロー）
 
-ワークフロー **Build WASM**（`.github/workflows/build-wasm.yml`）を **手動実行**すると `wasm/dist` が artifact（`zigpix-wasm-dist`）として保存される。**所要時間は libaom / libavif のフルコンパイルが支配的**（目安: 数分〜数十分以上）。`build-native` には混ぜない。
+ワークフロー **Build WASM**（`.github/workflows/build-wasm.yml`）を **手動実行**すると `wasm/dist` が artifact（`zenpix-wasm-dist`）として保存される。**所要時間は libaom / libavif のフルコンパイルが支配的**（目安: 数分〜数十分以上）。`build-native` には混ぜない。
 
 ### 詳細・ビルド前提
 
@@ -277,5 +277,5 @@ CI の **build-native** でも `npm run build` の直後に上記と同等の ov
 
 ### Cloudflare Pages での使い方（要点）
 
-- **静的サイト**としてブラウザで動かす想定。`import { createAvifEncoder } from 'zigpix-wasm'` のように ESM で読み、bundler が `.wasm` をアセットとして吐き出す設定に合わせる。
-- **Workers 上での WASM AVIF エンコード**は CPU 時間・サイズ制約が厳しく、チェックリストどおり **非推奨**（大画像はサーバの `zigpix` ネイティブへ）。
+- **静的サイト**としてブラウザで動かす想定。`import { createAvifEncoder } from 'zenpix-wasm'` のように ESM で読み、bundler が `.wasm` をアセットとして吐き出す設定に合わせる。
+- **Workers 上での WASM AVIF エンコード**は CPU 時間・サイズ制約が厳しく、チェックリストどおり **非推奨**（大画像はサーバの `zenpix` ネイティブへ）。

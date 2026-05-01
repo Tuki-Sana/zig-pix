@@ -1,5 +1,5 @@
 /**
- * zigpix — High-performance image processing (Zig-powered native binding)
+ * zenpix — High-performance image processing (Zig-powered native binding)
  * Deno entry point using Deno.dlopen
  *
  * Supported operations:
@@ -29,23 +29,23 @@ import { fileURLToPath } from "node:url";
 import process from "node:process";
 
 // ── Library path resolution ───────────────────────────────────────────────────
-// 解決順は index.ts の resolveLibPath と同じ（ZIGPIX_LIB → ../../zig-out → optional。npm optional は darwin arm64/x64・linux x64・win32 x64 の 4 件。win32+arm64 のみ optional なし）。
+// 解決順は index.ts の resolveLibPath と同じ（ZENPIX_LIB → ../../zig-out → optional。npm optional は darwin arm64/x64・linux x64・win32 x64 の 4 件。win32+arm64 のみ optional なし）。
 
 function resolveLibPath(): string {
   const plat = process.platform;
   const cpu  = process.arch;
 
   if (plat !== "darwin" && plat !== "linux" && plat !== "win32") {
-    throw new Error(`zigpix: unsupported platform: ${plat} (supported: darwin, linux, win32)`);
+    throw new Error(`zenpix: unsupported platform: ${plat} (supported: darwin, linux, win32)`);
   }
   if (cpu !== "arm64" && cpu !== "x64") {
-    throw new Error(`zigpix: unsupported architecture: ${cpu} (supported: arm64, x64)`);
+    throw new Error(`zenpix: unsupported architecture: ${cpu} (supported: arm64, x64)`);
   }
 
   const ext     = plat === "darwin" ? "dylib" : plat === "win32" ? "dll" : "so";
-  const pkgName = `zigpix-${plat}-${cpu}`;
+  const pkgName = `zenpix-${plat}-${cpu}`;
 
-  const fromEnv = process.env.ZIGPIX_LIB?.trim();
+  const fromEnv = process.env.ZENPIX_LIB?.trim();
   if (fromEnv && existsSync(fromEnv)) {
     return fromEnv;
   }
@@ -63,9 +63,9 @@ function resolveLibPath(): string {
 
   if (plat === "win32" && cpu === "arm64") {
     throw new Error(
-      `zigpix: Windows on ARM64 向けの npm optional は提供していません。` +
-        `自前ビルドの zig-out/windows-aarch64/libpict.dll を置くか ZIGPIX_LIB で指定するか、` +
-        `x64 版 Node.js と zigpix-win32-x64 を利用してください。`,
+      `zenpix: Windows on ARM64 向けの npm optional は提供していません。` +
+        `自前ビルドの zig-out/windows-aarch64/libpict.dll を置くか ZENPIX_LIB で指定するか、` +
+        `x64 版 Node.js と zenpix-win32-x64 を利用してください。`,
     );
   }
 
@@ -75,8 +75,8 @@ function resolveLibPath(): string {
     return join(pkgRoot, `libpict.${ext}`);
   } catch {
     throw new Error(
-      `zigpix: libpict.${ext} が見つかりません。` +
-        `\`zig build lib\` で ${zigOut} を生成するか、ZIGPIX_LIB を設定するか、optional ${pkgName} を入れてください。`,
+      `zenpix: libpict.${ext} が見つかりません。` +
+        `\`zig build lib\` で ${zigOut} を生成するか、ZENPIX_LIB を設定するか、optional ${pkgName} を入れてください。`,
     );
   }
 }
@@ -152,7 +152,7 @@ const _lib = Deno.dlopen(resolveLibPath(), {
  * This mirrors koffi's copyAndFree pattern in index.ts.
  */
 function copyAndFree(ptr: Deno.PointerValue, len: bigint): Uint8Array {
-  if (ptr === null) throw new Error("zigpix: unexpected null pointer in copyAndFree");
+  if (ptr === null) throw new Error("zenpix: unexpected null pointer in copyAndFree");
   const size = Number(len);
   const view = new Deno.UnsafePointerView(ptr as NonNullable<Deno.PointerValue>);
   const out  = new Uint8Array(size);
@@ -245,7 +245,7 @@ export function decode(input: Uint8Array): ImageBuffer {
   );
 
   if (ptr === null) {
-    throw new Error("zigpix: decode failed (unsupported format or corrupt data)");
+    throw new Error("zenpix: decode failed (unsupported format or corrupt data)");
   }
 
   const len = readU64(outLenBuf);
@@ -276,7 +276,7 @@ export function resize(image: ImageBuffer, options: ResizeOptions): ImageBuffer 
   let { width, height, threads = 1 } = options;
 
   if (!width && !height) {
-    throw new Error("zigpix: resize requires at least one of width or height");
+    throw new Error("zenpix: resize requires at least one of width or height");
   }
 
   if (!width)  width  = Math.round((image.width  / image.height) * height!);
@@ -291,7 +291,7 @@ export function resize(image: ImageBuffer, options: ResizeOptions): ImageBuffer 
     Deno.UnsafePointer.of(outLenBuf),
   );
 
-  if (ptr === null) throw new Error("zigpix: resize failed");
+  if (ptr === null) throw new Error("zenpix: resize failed");
 
   const len = readU64(outLenBuf);
   const out: ImageBuffer = {
@@ -324,7 +324,7 @@ export function encodeWebP(image: ImageBuffer, options: WebPOptions = {}): Uint8
     Deno.UnsafePointer.of(outLenBuf),
   );
 
-  if (ptr === null) throw new Error("zigpix: WebP encoding failed");
+  if (ptr === null) throw new Error("zenpix: WebP encoding failed");
 
   const len = readU64(outLenBuf);
   return copyAndFree(ptr, len);

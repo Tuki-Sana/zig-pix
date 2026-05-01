@@ -1,5 +1,5 @@
 /**
- * zigpix — High-performance image processing (Zig-powered native binding)
+ * zenpix — High-performance image processing (Zig-powered native binding)
  *
  * Supported operations:
  *   decode()     — JPEG / PNG / still WebP → raw pixels（埋め込み ICC があれば返す）
@@ -13,7 +13,7 @@
  *
  * AVIF note:
  *   libavif and libaom are statically linked in the distributed npm packages.
- *   No system-level installation is required when using npm install zigpix.
+ *   No system-level installation is required when using npm install zenpix.
  *   encodeAvif() returns null if the build was compiled without AVIF support,
  *   or if quality/speed options are out of range.
  */
@@ -28,9 +28,9 @@ import { createRequire } from "module";
 // ── Library loading ───────────────────────────────────────────────────────────
 //
 // 解決順（リリース初期: リポジトリ内のビルド成果物を優先し、古い optional より新シンボルを使いやすくする）:
-//   1. 環境変数 ZIGPIX_LIB（存在するファイルパスのみ）
+//   1. 環境変数 ZENPIX_LIB（存在するファイルパスのみ）
 //   2. このモジュールからの相対 ../../zig-out/lib/libpict.{dylib,so} または zig-out/windows-x86_64|windows-aarch64/libpict.dll（zig build 済みなら）
-//   3. optionalDependency zigpix-<platform>-<arch> 内の libpict（npm は darwin-arm64 / darwin-x64 / linux-x64 / win32-x64 の 4 パッケージ。win32+arm64 は optional なし）
+//   3. optionalDependency zenpix-<platform>-<arch> 内の libpict（npm は darwin-arm64 / darwin-x64 / linux-x64 / win32-x64 の 4 パッケージ。win32+arm64 は optional なし）
 //
 // 本番 npm のみの環境では 2 が無いので 3 が使われる。プラットフォームパッケージは新 lib で再 publish すること。
 
@@ -39,16 +39,16 @@ function resolveLibPath(): string {
   const cpu = arch();
 
   if (plat !== "darwin" && plat !== "linux" && plat !== "win32") {
-    throw new Error(`zigpix: unsupported platform: ${plat} (supported: darwin, linux, win32)`);
+    throw new Error(`zenpix: unsupported platform: ${plat} (supported: darwin, linux, win32)`);
   }
   if (cpu !== "arm64" && cpu !== "x64") {
-    throw new Error(`zigpix: unsupported architecture: ${cpu} (supported: arm64, x64)`);
+    throw new Error(`zenpix: unsupported architecture: ${cpu} (supported: arm64, x64)`);
   }
 
   const ext = plat === "darwin" ? "dylib" : plat === "win32" ? "dll" : "so";
-  const pkgName = `zigpix-${plat}-${cpu}`;
+  const pkgName = `zenpix-${plat}-${cpu}`;
 
-  const fromEnv = process.env.ZIGPIX_LIB?.trim();
+  const fromEnv = process.env.ZENPIX_LIB?.trim();
   if (fromEnv && existsSync(fromEnv)) {
     return fromEnv;
   }
@@ -66,9 +66,9 @@ function resolveLibPath(): string {
 
   if (plat === "win32" && cpu === "arm64") {
     throw new Error(
-      `zigpix: Windows on ARM64 向けの npm optional は提供していません。` +
-        `自前ビルドの \`zig-out/windows-aarch64/libpict.dll\` を置くか \`ZIGPIX_LIB\` で指定するか、` +
-        `x64 版 Node.js と optional \`zigpix-win32-x64\` を利用してください（\`zig build lib-windows-arm64 -Davif=static\` は \`docs/windows-rollout-plan.md\` 参照）。`,
+      `zenpix: Windows on ARM64 向けの npm optional は提供していません。` +
+        `自前ビルドの \`zig-out/windows-aarch64/libpict.dll\` を置くか \`ZENPIX_LIB\` で指定するか、` +
+        `x64 版 Node.js と optional \`zenpix-win32-x64\` を利用してください（\`zig build lib-windows-arm64 -Davif=static\` は \`docs/windows-rollout-plan.md\` 参照）。`,
     );
   }
 
@@ -78,9 +78,9 @@ function resolveLibPath(): string {
     return join(pkgRoot, `libpict.${ext}`);
   } catch {
     throw new Error(
-      `zigpix: libpict.${ext} が見つかりません。` +
+      `zenpix: libpict.${ext} が見つかりません。` +
         `リポジトリなら \`zig build lib\` で ${zigOut} を生成するか、` +
-        `環境変数 ZIGPIX_LIB にフルパスを設定するか、optional ${pkgName} を入れてください。`,
+        `環境変数 ZENPIX_LIB にフルパスを設定するか、optional ${pkgName} を入れてください。`,
     );
   }
 }
@@ -186,7 +186,7 @@ export function decode(input: Buffer | Uint8Array): ImageBuffer {
 
   const ptr = _decode_v3(buf, BigInt(buf.byteLength), outW, outH, outCh, outLen, iccPtrSlot, iccLen);
   if (ptr === null) {
-    throw new Error("zigpix: decode failed (unsupported format or corrupt data)");
+    throw new Error("zenpix: decode failed (unsupported format or corrupt data)");
   }
 
   const out: ImageBuffer = {
@@ -214,7 +214,7 @@ export function resize(image: ImageBuffer, options: ResizeOptions): ImageBuffer 
   let { width, height, threads = 1 } = options;
 
   if (!width && !height) {
-    throw new Error("zigpix: resize requires at least one of width or height");
+    throw new Error("zenpix: resize requires at least one of width or height");
   }
 
   if (!width)  width  = Math.round((image.width  / image.height) * height!);
@@ -228,7 +228,7 @@ export function resize(image: ImageBuffer, options: ResizeOptions): ImageBuffer 
     threads,
     outLen,
   );
-  if (ptr === null) throw new Error("zigpix: resize failed");
+  if (ptr === null) throw new Error("zenpix: resize failed");
 
   const out: ImageBuffer = {
     data:     copyAndFree(ptr, outLen[0]),
@@ -260,7 +260,7 @@ export function encodeWebP(image: ImageBuffer, options: WebPOptions = {}): Buffe
     iccLen,
     outLen,
   );
-  if (ptr === null) throw new Error("zigpix: WebP encoding failed");
+  if (ptr === null) throw new Error("zenpix: WebP encoding failed");
 
   return copyAndFree(ptr, outLen[0]);
 }

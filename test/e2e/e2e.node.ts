@@ -15,7 +15,7 @@
  *   bun run test/e2e/e2e.node.ts        (Bun)
  */
 
-import { decode, resize, encodeWebP, encodeAvif } from "zigpix";
+import { decode, resize, encodeWebP, encodeAvif } from "zenpix";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";

@@ -1,7 +1,7 @@
 {
-  "name": "zigpix-darwin-arm64",
+  "name": "zenpix-darwin-arm64",
   "version": "0.2.4",
-  "description": "zigpix native binary for macOS Apple Silicon (arm64)",
+  "description": "zenpix native binary for macOS Apple Silicon (arm64)",
   "os": ["darwin"],
   "cpu": ["arm64"],
   "files": ["libpict.dylib", "LICENSE", "THIRD_PARTY_LICENSES"],

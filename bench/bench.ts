@@ -1,5 +1,5 @@
 /**
- * bench/bench.ts — zigpix vs sharp benchmark (multi-scenario)
+ * bench/bench.ts — zenpix vs sharp benchmark (multi-scenario)
  *
  * For each scenario: decode(PNG) → resize(outW×outH) → encodeAVIF(quality, speed)
  * Input PNGs are generated from test/fixtures/*.png (see BENCH_FIXTURES below),
@@ -15,7 +15,7 @@
  *   bench/results/benchmark.json
  *   bench/results/benchmark.md
  *   bench/results/report.html  (opens ./samples/*.avif)
- *   bench/results/samples/matrix-{fixture}-{scenario}-{zigpix|sharp}.avif
+ *   bench/results/samples/matrix-{fixture}-{scenario}-{zenpix|sharp}.avif
  *
  * Run:
  *   npm install sharp   (if not already installed)
@@ -23,7 +23,7 @@
  *   npx tsx bench/bench.ts
  */
 
-import { decode, resize, encodeAvif } from "zigpix";
+import { decode, resize, encodeAvif } from "zenpix";
 import sharp from "sharp";
 import { readFileSync, mkdirSync, writeFileSync } from "fs";
 import { join, dirname } from "path";
@@ -106,7 +106,7 @@ async function makeInputPng(fixturePath: string, s: Scenario): Promise<Buffer> {
     .toBuffer();
 }
 
-function benchZigpix(input: Buffer, outW: number, outH: number): number[] {
+function benchZenpix(input: Buffer, outW: number, outH: number): number[] {
   const times: number[] = [];
   for (let i = 0; i < WARMUP_N + MEASURE_N; i++) {
     const t0 = performance.now();
@@ -114,7 +114,7 @@ function benchZigpix(input: Buffer, outW: number, outH: number): number[] {
     const small = resize(img, { width: outW, height: outH });
     const avif = encodeAvif(small, { quality: AVIF_QUALITY, speed: AVIF_SPEED });
     const t1 = performance.now();
-    if (avif === null) throw new Error("zigpix encodeAvif returned null");
+    if (avif === null) throw new Error("zenpix encodeAvif returned null");
     if (i >= WARMUP_N) times.push(t1 - t0);
   }
   return times;
@@ -149,13 +149,13 @@ async function writeMatrixSamples(
   inputPng: Buffer,
   outW: number,
   outH: number,
-): Promise<{ zigpix_rel: string; sharp_rel: string; zigpix_bytes: number; sharp_bytes: number }> {
+): Promise<{ zenpix_rel: string; sharp_rel: string; zenpix_bytes: number; sharp_bytes: number }> {
   mkdirSync(SAMPLES_DIR, { recursive: true });
   const img = decode(inputPng);
   const small = resize(img, { width: outW, height: outH });
   const z = encodeAvif(small, { quality: AVIF_QUALITY, speed: AVIF_SPEED });
-  if (z === null) throw new Error("zigpix encodeAvif returned null (samples)");
-  const zigName = `matrix-${fixtureId}-${scenarioId}-zigpix.avif`;
+  if (z === null) throw new Error("zenpix encodeAvif returned null (samples)");
+  const zigName = `matrix-${fixtureId}-${scenarioId}-zenpix.avif`;
   const sharpName = `matrix-${fixtureId}-${scenarioId}-sharp.avif`;
   writeFileSync(join(SAMPLES_DIR, zigName), z);
 
@@ -166,9 +166,9 @@ async function writeMatrixSamples(
   writeFileSync(join(SAMPLES_DIR, sharpName), sbuf);
 
   return {
-    zigpix_rel: `samples/${zigName}`,
+    zenpix_rel: `samples/${zigName}`,
     sharp_rel: `samples/${sharpName}`,
-    zigpix_bytes: z.length,
+    zenpix_bytes: z.length,
     sharp_bytes: sbuf.length,
   };
 }
@@ -191,13 +191,13 @@ console.log(`Input: test/fixtures/<png> → Sharp cover-resize per scenario\n`);
 type ScenarioRow = {
   scenario: Scenario;
   input_png_bytes: number;
-  zigpix: Timings;
+  zenpix: Timings;
   sharp: Timings;
   ratio: number;
   samples?: {
-    zigpix_rel: string;
+    zenpix_rel: string;
     sharp_rel: string;
-    zigpix_bytes: number;
+    zenpix_bytes: number;
     sharp_bytes: number;
   };
 };
@@ -219,33 +219,33 @@ for (const fx of fixtures) {
     const inputPng = await makeInputPng(fixturePath, s);
     console.log(`  input PNG size: ${inputPng.length} bytes`);
 
-    console.log("  zigpix...");
-    const zigpixTimes = benchZigpix(inputPng, s.outW, s.outH);
-    const zigpix = summarize(zigpixTimes);
+    console.log("  zenpix...");
+    const zenpixTimes = benchZenpix(inputPng, s.outW, s.outH);
+    const zenpix = summarize(zenpixTimes);
 
     console.log("  sharp...");
     const sharpTimes = await benchSharp(inputPng, s.outW, s.outH);
     const sharpT = summarize(sharpTimes);
 
-    const ratio = sharpT.median_ms / zigpix.median_ms;
+    const ratio = sharpT.median_ms / zenpix.median_ms;
 
     let samples: ScenarioRow["samples"];
     if (WRITE_SAMPLES) {
       samples = await writeMatrixSamples(fx.id, s.id, inputPng, s.outW, s.outH);
-      console.log(`  wrote ${samples.zigpix_rel}, ${samples.sharp_rel}`);
+      console.log(`  wrote ${samples.zenpix_rel}, ${samples.sharp_rel}`);
     }
 
     scenarioResults.push({
       scenario: s,
       input_png_bytes: inputPng.length,
-      zigpix,
+      zenpix,
       sharp: sharpT,
       ratio: parseFloat(ratio.toFixed(2)),
       samples,
     });
 
     console.log(
-      `  median: zigpix ${fmt(zigpix.median_ms)} ms / sharp ${fmt(sharpT.median_ms)} ms → ratio ${ratio.toFixed(2)} (sharp÷zigpix)\n`,
+      `  median: zenpix ${fmt(zenpix.median_ms)} ms / sharp ${fmt(sharpT.median_ms)} ms → ratio ${ratio.toFixed(2)} (sharp÷zenpix)\n`,
     );
   }
 
@@ -263,7 +263,7 @@ const fxCol = 22;
 console.log(
   `┌${"─".repeat(fxCol)}┬────────────┬──────────────────┬──────────────────┬──────────┐`,
 );
-console.log("│ Fixture                │ Scenario   │ zigpix median ms │ sharp median ms  │ ratio    │");
+console.log("│ Fixture                │ Scenario   │ zenpix median ms │ sharp median ms  │ ratio    │");
 console.log(
   `├${"─".repeat(fxCol)}┼────────────┼──────────────────┼──────────────────┼──────────┤`,
 );
@@ -272,14 +272,14 @@ for (const fr of fixtureResults) {
     const fxId = fr.fixture.id.length > fxCol ? fr.fixture.id.slice(0, fxCol - 1) + "…" : fr.fixture.id.padEnd(fxCol);
     const sid = r.scenario.id.padEnd(10);
     console.log(
-      `│ ${fxId} │ ${sid} │ ${pad(fmt(r.zigpix.median_ms), colW)} │ ${pad(fmt(r.sharp.median_ms), colW)} │ ${pad(r.ratio.toFixed(2) + "×", 8)} │`,
+      `│ ${fxId} │ ${sid} │ ${pad(fmt(r.zenpix.median_ms), colW)} │ ${pad(fmt(r.sharp.median_ms), colW)} │ ${pad(r.ratio.toFixed(2) + "×", 8)} │`,
     );
   }
 }
 console.log(
   `└${"─".repeat(fxCol)}┴────────────┴──────────────────┴──────────────────┴──────────┘`,
 );
-console.log("ratio = sharp_median / zigpix_median (>1 ⇒ zigpix faster wall-clock)\n");
+console.log("ratio = sharp_median / zenpix_median (>1 ⇒ zenpix faster wall-clock)\n");
 
 // ── JSON ──────────────────────────────────────────────────────────────────────
 
@@ -304,9 +304,9 @@ const jsonResult = {
       input_px: `${r.scenario.inW}×${r.scenario.inH}`,
       output_px: `${r.scenario.outW}×${r.scenario.outH}`,
       input_png_bytes: r.input_png_bytes,
-      zigpix: r.zigpix,
+      zenpix: r.zenpix,
       sharp: r.sharp,
-      ratio_sharp_median_over_zigpix_median: r.ratio,
+      ratio_sharp_median_over_zenpix_median: r.ratio,
       sample_avif: r.samples ?? null,
     })),
   })),
@@ -318,7 +318,7 @@ const mdRows = fixtureResults
   .flatMap((fr) =>
     fr.scenarios.map(
       (r) =>
-        `| ${fr.fixture.id} | ${r.scenario.label} | ${r.scenario.inW}×${r.scenario.inH} | ${r.scenario.outW}×${r.scenario.outH} | ${fmt(r.zigpix.median_ms)} | ${fmt(r.zigpix.min_ms)} | ${fmt(r.zigpix.max_ms)} | ${fmt(r.sharp.median_ms)} | ${fmt(r.sharp.min_ms)} | ${fmt(r.sharp.max_ms)} | **${r.ratio.toFixed(2)}×** |`,
+        `| ${fr.fixture.id} | ${r.scenario.label} | ${r.scenario.inW}×${r.scenario.inH} | ${r.scenario.outW}×${r.scenario.outH} | ${fmt(r.zenpix.median_ms)} | ${fmt(r.zenpix.min_ms)} | ${fmt(r.zenpix.max_ms)} | ${fmt(r.sharp.median_ms)} | ${fmt(r.sharp.min_ms)} | ${fmt(r.sharp.max_ms)} | **${r.ratio.toFixed(2)}×** |`,
     ),
   )
   .join("\n");
@@ -331,17 +331,17 @@ const mdResult = `# Benchmark Results (matrix)
 **Warm-up / measure**: ${WARMUP_N} / ${MEASURE_N} per tool per scenario per fixture  
 **Fixtures**: ${fixtures.map((f) => f.id).join(", ")} — PNGs under \`test/fixtures/\`, scaled to each input size (Sharp, \`fit=cover\`) once per scenario.
 
-| fixture | シナリオ | 入力 (px) | 出力 (px) | zigpix med (ms) | zig min | zig max | sharp med (ms) | sharp min | sharp max | ratio |
+| fixture | シナリオ | 入力 (px) | 出力 (px) | zenpix med (ms) | zig min | zig max | sharp med (ms) | sharp min | sharp max | ratio |
 |---------|----------|-----------|-----------|----------------:|--------:|--------:|---------------:|----------:|----------:|------:|
 ${mdRows}
 
-**ratio** = sharp median ÷ zigpix median (**>1** means zigpix lower wall-clock median for this pipeline).
+**ratio** = sharp median ÷ zenpix median (**>1** means zenpix lower wall-clock median for this pipeline).
 
 ## Sample AVIFs & HTML
 
 ${
   WRITE_SAMPLES
-    ? `Relative to \`bench/results/\`: \`report.html\`, and \`samples/matrix-{fixture}-{scenario}-zigpix.avif\` / \`…-sharp.avif\`.`
+    ? `Relative to \`bench/results/\`: \`report.html\`, and \`samples/matrix-{fixture}-{scenario}-zenpix.avif\` / \`…-sharp.avif\`.`
     : `Skipped (\`BENCH_WRITE_SAMPLES=0\`).`
 }
 
@@ -374,17 +374,17 @@ if (WRITE_SAMPLES) {
         input_px: `${r.scenario.inW}×${r.scenario.inH}`,
         output_px: `${r.scenario.outW}×${r.scenario.outH}`,
         ratio: r.ratio,
-        zigpix_median_ms: r.zigpix.median_ms,
+        zenpix_median_ms: r.zenpix.median_ms,
         sharp_median_ms: r.sharp.median_ms,
-        zigpix_sample_rel: sam.zigpix_rel,
+        zenpix_sample_rel: sam.zenpix_rel,
         sharp_sample_rel: sam.sharp_rel,
-        zigpix_bytes: sam.zigpix_bytes,
+        zenpix_bytes: sam.zenpix_bytes,
         sharp_bytes: sam.sharp_bytes,
       };
     }),
   );
   writeMatrixHtml(htmlPath, {
-    title: "zigpix vs Sharp — bench matrix",
+    title: "zenpix vs Sharp — bench matrix",
     date: now,
     runner,
     pipeline: "decode PNG → resize → AVIF",

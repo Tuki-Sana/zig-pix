@@ -18,11 +18,11 @@ export interface MatrixScenarioRow {
   input_px: string;
   output_px: string;
   ratio: number;
-  zigpix_median_ms: number;
+  zenpix_median_ms: number;
   sharp_median_ms: number;
-  zigpix_sample_rel: string;
+  zenpix_sample_rel: string;
   sharp_sample_rel: string;
-  zigpix_bytes: number;
+  zenpix_bytes: number;
   sharp_bytes: number;
   /** When set, HTML groups rows by fixture (multi-image matrix bench). */
   fixture_id?: string;
@@ -34,13 +34,13 @@ function matrixScenarioSection(s: MatrixScenarioRow, scenarioHeading: "h2" | "h3
   return `
   <section class="scenario">
     <${H}>${escapeHtml(s.label)} <span class="id">(${escapeHtml(s.id)})</span></${H}>
-    <p class="meta">${escapeHtml(s.input_px)} → ${escapeHtml(s.output_px)} · ratio (sharp÷zigpix) <strong>${s.ratio.toFixed(2)}×</strong></p>
-    <p class="timing">zigpix median ${s.zigpix_median_ms.toFixed(2)} ms · sharp median ${s.sharp_median_ms.toFixed(2)} ms</p>
-    <p class="bytes">${s.zigpix_bytes.toLocaleString()} bytes (zigpix) · ${s.sharp_bytes.toLocaleString()} bytes (sharp)</p>
+    <p class="meta">${escapeHtml(s.input_px)} → ${escapeHtml(s.output_px)} · ratio (sharp÷zenpix) <strong>${s.ratio.toFixed(2)}×</strong></p>
+    <p class="timing">zenpix median ${s.zenpix_median_ms.toFixed(2)} ms · sharp median ${s.sharp_median_ms.toFixed(2)} ms</p>
+    <p class="bytes">${s.zenpix_bytes.toLocaleString()} bytes (zenpix) · ${s.sharp_bytes.toLocaleString()} bytes (sharp)</p>
     <div class="row">
       <figure>
-        <figcaption>zigpix</figcaption>
-        <img src="${escapeHtml(s.zigpix_sample_rel)}" alt="zigpix AVIF" width="320" loading="lazy" />
+        <figcaption>zenpix</figcaption>
+        <img src="${escapeHtml(s.zenpix_sample_rel)}" alt="zenpix AVIF" width="320" loading="lazy" />
       </figure>
       <figure>
         <figcaption>Sharp</figcaption>
@@ -136,9 +136,9 @@ export function writeQualityHtml(
     node: string;
     tolerance_pct: number;
     anchor: { quality: number; speed: number; bytes: number };
-    zigpix: { quality: number; speed: number; bytes: number; within: boolean };
-    timings: { zigpix_median_ms: number; sharp_median_ms: number; ratio: number };
-    zigpix_sample_rel: string;
+    zenpix: { quality: number; speed: number; bytes: number; within: boolean };
+    timings: { zenpix_median_ms: number; sharp_median_ms: number; ratio: number };
+    zenpix_sample_rel: string;
     sharp_sample_rel: string;
     pixels: string;
   },
@@ -166,15 +166,15 @@ export function writeQualityHtml(
   <p>Tolerance ±${opts.tolerance_pct}% · ${escapeHtml(opts.pixels)}</p>
   <table>
     <tr><th>Sharp anchor</th><td>quality ${opts.anchor.quality}, speed ${opts.anchor.speed}, ${opts.anchor.bytes.toLocaleString()} bytes</td></tr>
-    <tr><th>zigpix (calibrated)</th><td>quality ${opts.zigpix.quality}, speed ${opts.zigpix.speed}, ${opts.zigpix.bytes.toLocaleString()} bytes · within band: ${opts.zigpix.within ? "yes" : "no"}</td></tr>
-    <tr><th>zigpix encode median</th><td>${opts.timings.zigpix_median_ms.toFixed(2)} ms</td></tr>
+    <tr><th>zenpix (calibrated)</th><td>quality ${opts.zenpix.quality}, speed ${opts.zenpix.speed}, ${opts.zenpix.bytes.toLocaleString()} bytes · within band: ${opts.zenpix.within ? "yes" : "no"}</td></tr>
+    <tr><th>zenpix encode median</th><td>${opts.timings.zenpix_median_ms.toFixed(2)} ms</td></tr>
     <tr><th>Sharp encode median</th><td>${opts.timings.sharp_median_ms.toFixed(2)} ms</td></tr>
-    <tr><th>ratio (sharp÷zigpix)</th><td>${opts.timings.ratio.toFixed(2)}×</td></tr>
+    <tr><th>ratio (sharp÷zenpix)</th><td>${opts.timings.ratio.toFixed(2)}×</td></tr>
   </table>
   <div class="row">
     <figure>
-      <figcaption>zigpix</figcaption>
-      <img src="${escapeHtml(opts.zigpix_sample_rel)}" alt="zigpix AVIF" width="320" loading="lazy" />
+      <figcaption>zenpix</figcaption>
+      <img src="${escapeHtml(opts.zenpix_sample_rel)}" alt="zenpix AVIF" width="320" loading="lazy" />
     </figure>
     <figure>
       <figcaption>Sharp (anchor)</figcaption>

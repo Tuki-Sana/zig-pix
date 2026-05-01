@@ -1,5 +1,5 @@
 {
-  "name": "zigpix",
+  "name": "zenpix",
   "version": "0.2.4",
   "description": "High-performance image processing engine (Zig + libavif). Decode, resize, WebP/AVIF encode. Speed vs Sharp depends on pipeline and hardware — see README benchmarks.",
   "type": "module",
@@ -44,10 +44,10 @@
     "url": "https://github.com/Tuki-Sana/zig-pix.git"
   },
   "optionalDependencies": {
-    "zigpix-darwin-arm64": "0.2.4",
-    "zigpix-darwin-x64": "0.2.4",
-    "zigpix-linux-x64": "0.2.4",
-    "zigpix-win32-x64": "0.2.4"
+    "zenpix-darwin-arm64": "0.2.4",
+    "zenpix-darwin-x64": "0.2.4",
+    "zenpix-linux-x64": "0.2.4",
+    "zenpix-win32-x64": "0.2.4"
   },
   "dependencies": {
     "koffi": "^2.16.0"

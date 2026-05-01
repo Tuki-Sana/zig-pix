@@ -1,7 +1,7 @@
 {
-  "name": "zigpix-linux-x64",
+  "name": "zenpix-linux-x64",
   "version": "0.2.4",
-  "description": "zigpix native binary for Linux x86_64",
+  "description": "zenpix native binary for Linux x86_64",
   "os": ["linux"],
   "cpu": ["x64"],
   "files": ["libpict.so", "LICENSE", "THIRD_PARTY_LICENSES"],
