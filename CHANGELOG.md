@@ -7,6 +7,14 @@
 
 （次パッチ以降の差分をここに書く）
 
+## [0.3.0] - 2026-05-01
+
+### 変更
+
+- **パッケージリネーム**: `zigpix` → `zenpix`（npm・GitHub リポジトリ名ともに変更）。旧 `zigpix` 系パッケージは deprecated 済み。`npm install zenpix` で移行してください。
+- **ロゴ・バナー追加**: 円相×ピクセルモチーフのロゴ（`assets/zenpix-logo.jpg`）と 16:9 バナー（`assets/zenpix-banner.jpg`）を追加。バナー生成スクリプト（`scripts/gen-banner.mjs`）は zenpix 自身で Lanczos-3 リサイズを行う。
+- **ネイティブバイナリ**: 0.2.4 と同一内容（再ビルド不要）。
+
 ## [0.2.4] - 2026-04-18
 
 ### 変更
