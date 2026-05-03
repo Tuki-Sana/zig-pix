@@ -7,6 +7,7 @@
  *   resize()     — Lanczos-3 high-quality resize
  *   encodeWebP() — WebP encode (lossy / lossless)
  *   encodeAvif() — AVIF encode
+ *   encodePng()  — PNG encode with optional ICC passthrough
  *
  * Memory model:
  *   All returned Uint8Arrays are independently owned (copied from native memory).
@@ -136,6 +137,19 @@ const _lib = Deno.dlopen(resolveLibPath(), {
     ],
     result: "pointer",
   },
+  pict_encode_png: {
+    parameters: [
+      "pointer", // const uint8 *pixels
+      "u32",     // uint32 width
+      "u32",     // uint32 height
+      "u8",      // uint8 channels
+      "u8",      // uint8 compression
+      "pointer", // icc (nullable)
+      "u64",     // icc_len
+      "pointer", // uint64 *out_len
+    ],
+    result: "pointer",
+  },
   pict_free_buffer: {
     parameters: [
       "pointer", // uint8 *ptr
@@ -215,6 +229,11 @@ export interface AvifOptions {
    * 10 = fastest (lower quality), 0 = slowest (best quality).
    */
   speed?: number;
+}
+
+export interface PngOptions {
+  /** zlib compression level 0–9 (default: 6) */
+  compression?: number;
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -357,6 +376,34 @@ export function encodeAvif(image: ImageBuffer, options: AvifOptions = {}): Uint8
   );
 
   if (ptr === null) return null;
+
+  const len = readU64(outLenBuf);
+  return copyAndFree(ptr, len);
+}
+
+/**
+ * Encode pixel data as PNG.
+ * @throws {Error} if compression is not an integer 0–9, or if encoding fails
+ */
+export function encodePng(image: ImageBuffer, options: PngOptions = {}): Uint8Array {
+  const { compression = 6 } = options;
+
+  if (!Number.isInteger(compression) || compression < 0 || compression > 9) {
+    throw new Error("zenpix: compression must be an integer 0–9");
+  }
+
+  const hasIcc = image.icc !== undefined && image.icc.byteLength > 0;
+  const outLenBuf = new Uint8Array(8);
+  const ptr = _lib.symbols.pict_encode_png(
+    Deno.UnsafePointer.of(image.data),
+    image.width, image.height, image.channels,
+    compression,
+    hasIcc ? Deno.UnsafePointer.of(image.icc!) : null,
+    hasIcc ? BigInt(image.icc!.byteLength) : 0n,
+    Deno.UnsafePointer.of(outLenBuf),
+  );
+
+  if (ptr === null) throw new Error("zenpix: PNG encoding failed");
 
   const len = readU64(outLenBuf);
   return copyAndFree(ptr, len);

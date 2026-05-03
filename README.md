@@ -33,7 +33,7 @@ deno add npm:zenpix
 または直接 `npm:` specifier を使用：
 
 ```typescript
-import { decode, resize, encodeWebP, encodeAvif } from "npm:zenpix/deno";
+import { decode, resize, encodeWebP, encodeAvif, encodePng } from "npm:zenpix/deno";
 ```
 
 > Deno での実行時は `--allow-ffi` フラグが必要です。
@@ -47,7 +47,7 @@ import { decode, resize, encodeWebP, encodeAvif } from "npm:zenpix/deno";
 ## 使い方
 
 ```typescript
-import { decode, resize, encodeWebP, encodeAvif } from "zenpix";
+import { decode, resize, encodeWebP, encodeAvif, encodePng } from "zenpix";
 import { readFileSync, writeFileSync } from "fs";
 
 // JPEG / PNG / WebP（静止画）をデコード
@@ -64,6 +64,10 @@ writeFileSync("output.webp", webp);
 // AVIF エンコード（libavif / libaom は静的リンク済み、追加インストール不要）
 const avif = encodeAvif(resized, { quality: 60, speed: 10 });
 if (avif) writeFileSync("output.avif", avif);
+
+// PNG エンコード（ICC プロファイルがあれば iCCP チャンクとして埋め込み）
+const png = encodePng(resized, { compression: 6 });
+writeFileSync("output.png", png);
 ```
 
 ## API
@@ -118,6 +122,16 @@ AVIF にエンコードします。以下の場合は `null` を返します：
 interface AvifOptions {
   quality?: number; // 0–100（デフォルト: 60）
   speed?: number;   // 0–10（デフォルト: 6）。10 が最速
+}
+```
+
+### `encodePng(image: ImageBuffer, options?: PngOptions): Buffer | Uint8Array`
+
+PNG にエンコードします。`image.icc` が設定されていれば iCCP チャンクとして埋め込みます。`compression` が 0–9 の範囲外の場合は `Error` を投げます。
+
+```typescript
+interface PngOptions {
+  compression?: number; // zlib 圧縮レベル 0–9（デフォルト: 6）
 }
 ```
 

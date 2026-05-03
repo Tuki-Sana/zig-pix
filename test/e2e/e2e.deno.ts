@@ -1,7 +1,7 @@
 /**
  * test/e2e/e2e.deno.ts — End-to-end integration test (Deno)
  *
- * Tests the full pipeline: decode → resize → encodeWebP → decode(WebP) → encodeAvif
+ * Tests the full pipeline: decode → resize → encodeWebP → decode(WebP) → encodeAvif → encodePng
  * using a real 128×128 PNG fixture file.
  *
  * Judgment criteria (intentionally loose to avoid flakes):
@@ -14,7 +14,7 @@
  *   deno run --allow-read --allow-ffi --allow-env test/e2e/e2e.deno.ts
  */
 
-import { decode, resize, encodeWebP, encodeAvif } from "../../js/src/index.deno.ts";
+import { decode, resize, encodeWebP, encodeAvif, encodePng } from "../../js/src/index.deno.ts";
 import { join, dirname, fromFileUrl } from "jsr:@std/path";
 
 const __dirname = dirname(fromFileUrl(import.meta.url));
@@ -114,13 +114,30 @@ try {
   } catch (e) {
     fail("encodeAvif", e instanceof Error ? e.message : String(e));
   }
+
+  // ── Step 6: encodePng ───────────────────────────────────────────────────────
+  try {
+    const png = encodePng(small, { compression: 6 });
+    if (png.byteLength <= 100) {
+      fail("encodePng output size", `expected > 100 bytes, got ${png.byteLength}`);
+    } else {
+      const isPng = png[0] === 0x89 && png[1] === 0x50 && png[2] === 0x4E && png[3] === 0x47;
+      if (!isPng) {
+        fail("encodePng header", "PNG magic not found");
+      } else {
+        pass(`encodePng — PNG magic verified, len=${png.byteLength}`);
+      }
+    }
+  } catch (e) {
+    fail("encodePng", e instanceof Error ? e.message : String(e));
+  }
 } catch (e) {
   console.error("Unexpected error:", e instanceof Error ? e.message : e);
   Deno.exit(1);
 }
 
 // ── Summary ──────────────────────────────────────────────────────────────────
-const TOTAL = 5;
+const TOTAL = 6;
 if (failed > 0) {
   console.error(`\n${failed} / ${TOTAL} E2E test(s) FAILED.`);
   Deno.exit(1);

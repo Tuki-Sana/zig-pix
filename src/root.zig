@@ -323,7 +323,54 @@ export fn pict_encode_avif(
     return p;
 }
 
-/// pict_decode / pict_decode_v2 / pict_decode_v3 / pict_resize / pict_encode_webp / pict_encode_webp_v2 / pict_encode_avif
+/// ピクセルデータを PNG にエンコードする。
+/// compression: zlib 圧縮レベル 0-9（範囲外は C 側で 6 に clamp）。
+/// icc / icc_len: 埋め込み ICC（null または icc_len==0 で省略）。
+/// 成功時: PNG バイト列 (pict_free_buffer(ptr, out_len) で解放)。
+/// 失敗時: null。out_len は変更しない。
+export fn pict_encode_png(
+    pixels: [*c]const u8,
+    width: u32,
+    height: u32,
+    channels: u8,
+    compression: u8,
+    icc: ?*const u8,
+    icc_len: usize,
+    out_len: ?*usize,
+) ?[*]u8 {
+    if (pixels == null or out_len == null or width == 0 or height == 0 or channels == 0) return null;
+    if (channels != 3 and channels != 4) return null;
+    const pixel_size = mul3SizeChecked(width, height, channels) orelse return null;
+
+    const icc_z: ?[]u8 = if (icc != null and icc_len > 0)
+        @constCast(@as([*]const u8, @ptrCast(icc.?))[0..icc_len])
+    else
+        null;
+
+    const img = decode.ImageBuffer{
+        .width     = width,
+        .height    = height,
+        .channels  = channels,
+        .format    = if (channels == 4) .rgba8 else .rgb8,
+        .data      = @constCast(pixels[0..pixel_size]),
+        .icc       = icc_z,
+        .allocator = ffi_alloc,
+    };
+
+    var encoder = encode.pngEncoder();
+    defer encoder.deinit();
+
+    var encoded = encoder.encode(img, .{ .png = .{
+        .compression = compression,
+    } }, ffi_alloc) catch return null;
+
+    if (out_len) |ol| ol.* = encoded.data.len;
+    const ptr = encoded.data.ptr;
+    encoded.data = &[_]u8{};
+    return ptr;
+}
+
+/// pict_decode / pict_decode_v2 / pict_decode_v3 / pict_resize / pict_encode_webp / pict_encode_webp_v2 / pict_encode_avif / pict_encode_png
 /// が返したバッファを解放する。
 /// pict_decode_v3 の埋め込み ICC バッファ (*out_icc) も同じくこの関数で解放する。
 export fn pict_free_buffer(ptr: [*]u8, len: usize) void {
@@ -346,14 +393,17 @@ test {
 // Phase 6 FFI ユニットテスト
 // ─────────────────────────────────────────────────────────────────────────────
 
-// テスト内で PNG を生成するための extern 宣言 (decode.zig と同じシンボルを参照)
+// テスト内で PNG を生成するための extern 宣言 (src/c/png_decode.c を参照)
 extern fn pict_png_encode(
     pixels: [*]const u8,
     width: c_uint,
     height: c_uint,
     channels: c_uint,
-    out_png: *?[*]u8,
-    out_len: *c_ulong,
+    compression: c_int,
+    icc: ?[*]const u8,
+    icc_len: usize,
+    out_png: *[*]u8,
+    out_len: *usize,
 ) c_int;
 extern fn pict_png_free(data: [*]u8) void;
 
@@ -416,13 +466,13 @@ test "pict_decode_v2: PNG デコード成功 + out_len == w*h*ch (成功系)" {
     const CH: c_uint = 4;
     var pixels = [_]u8{ 100, 150, 200, 255 } ** (W * H);
 
-    var png_ptr: ?[*]u8 = null;
-    var png_len: c_ulong = 0;
-    const rc = pict_png_encode(&pixels, W, H, CH, &png_ptr, &png_len);
+    var png_raw: [*]u8 = undefined;
+    var png_len: usize = 0;
+    const rc = pict_png_encode(&pixels, W, H, CH, 6, null, 0, &png_raw, &png_len);
     try std.testing.expectEqual(@as(c_int, 0), rc); // fail fast if encode fails
-    defer pict_png_free(png_ptr.?);
+    defer pict_png_free(png_raw);
 
-    const png_slice = png_ptr.?[0..png_len];
+    const png_slice = png_raw[0..png_len];
     var out_w: u32 = 0;
     var out_h: u32 = 0;
     var out_ch: u8 = 0;
@@ -487,13 +537,13 @@ test "pict_decode_v3: ICC 不要のとき out_icc は null のまま" {
     const CH: c_uint = 3;
     var pixels = [_]u8{ 10, 20, 30 } ** (W * H);
 
-    var png_ptr: ?[*]u8 = null;
-    var png_len: c_ulong = 0;
-    const rc = pict_png_encode(&pixels, W, H, CH, &png_ptr, &png_len);
+    var png_raw: [*]u8 = undefined;
+    var png_len: usize = 0;
+    const rc = pict_png_encode(&pixels, W, H, CH, 6, null, 0, &png_raw, &png_len);
     try std.testing.expectEqual(@as(c_int, 0), rc);
-    defer pict_png_free(png_ptr.?);
+    defer pict_png_free(png_raw);
 
-    const png_slice = png_ptr.?[0..png_len];
+    const png_slice = png_raw[0..png_len];
     var out_w: u32 = 0;
     var out_h: u32 = 0;
     var out_ch: u8 = 0;
@@ -582,6 +632,44 @@ test "pict_decode_v2: 不正データで null 返却、out_len 不変 (Category 
     const ptr = pict_decode_v2(bad[0..].ptr, bad.len, &out_w, &out_h, &out_ch, &out_len);
     try std.testing.expectEqual(@as(?[*]u8, null), ptr);
     try std.testing.expectEqual(@as(usize, 0xDEAD), out_len);
+}
+
+test "pict_encode_png: RGBA 4x4 を PNG にエンコード (成功系)" {
+    const W: u32 = 4;
+    const H: u32 = 4;
+    const CH: u8 = 4;
+    var src = [_]u8{ 100, 150, 200, 255 } ** (W * H);
+    var out_len: usize = 0;
+    const ptr = pict_encode_png(src[0..].ptr, W, H, CH, 6, null, 0, &out_len) orelse
+        return error.EncodeFailed;
+    defer pict_free_buffer(ptr, out_len);
+
+    try std.testing.expect(out_len > 8);
+    // PNG マジック
+    try std.testing.expectEqual(@as(u8, 0x89), ptr[0]);
+    try std.testing.expectEqual(@as(u8, 'P'), ptr[1]);
+    try std.testing.expectEqual(@as(u8, 'N'), ptr[2]);
+    try std.testing.expectEqual(@as(u8, 'G'), ptr[3]);
+}
+
+test "pict_encode_png: out_len=null は null を返す (Category A)" {
+    var src = [_]u8{128} ** (4 * 4 * 3);
+    const ptr = pict_encode_png(src[0..].ptr, 4, 4, 3, 6, null, 0, null);
+    try std.testing.expectEqual(@as(?[*]u8, null), ptr);
+}
+
+test "pict_encode_png: null 入力で null 返却、out_len 不変 (Category B)" {
+    var out_len: usize = 0xDEAD;
+    const ptr = pict_encode_png(@as([*c]const u8, null), 4, 4, 3, 6, null, 0, &out_len);
+    try std.testing.expectEqual(@as(?[*]u8, null), ptr);
+    try std.testing.expectEqual(@as(usize, 0xDEAD), out_len);
+}
+
+test "pict_encode_png: channels=2 は null を返す" {
+    var src = [_]u8{0} ** (4 * 4 * 2);
+    var out_len: usize = 0;
+    const ptr = pict_encode_png(src[0..].ptr, 4, 4, 2, 6, null, 0, &out_len);
+    try std.testing.expectEqual(@as(?[*]u8, null), ptr);
 }
 
 test "pict_decode: 不正データは null を返す" {

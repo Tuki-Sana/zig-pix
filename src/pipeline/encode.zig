@@ -12,6 +12,7 @@ const decode = @import("decode.zig");
 pub const OutputFormat = enum {
     webp,
     avif,
+    png,
 };
 
 pub const WebPOptions = struct {
@@ -30,9 +31,15 @@ pub const AvifOptions = struct {
     speed: u8 = 6,
 };
 
+pub const PngOptions = struct {
+    /// zlib 圧縮レベル 0..9 (0=無圧縮, 9=最高圧縮, デフォルト: 6)
+    compression: u8 = 6,
+};
+
 pub const EncodeOptions = union(OutputFormat) {
     webp: WebPOptions,
     avif: AvifOptions,
+    png: PngOptions,
 };
 
 pub const EncodeError = error{
@@ -317,6 +324,102 @@ pub fn avifEncoder() Encoder {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// libpng C bridge (extern 宣言)
+// src/c/png_decode.c で実装。
+// ─────────────────────────────────────────────────────────────────────────────
+
+extern fn pict_png_encode(
+    pixels: [*]const u8,
+    width: c_uint,
+    height: c_uint,
+    channels: c_uint,
+    compression: c_int,
+    icc: ?[*]const u8,
+    icc_len: usize,
+    out_png: *[*]u8,
+    out_len: *usize,
+) c_int;
+
+extern fn pict_png_free(data: [*]u8) void;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PngEncoder — libpng を使う Encoder 実装
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// libpng を使って ImageBuffer を PNG にエンコードする Encoder 実装。
+///
+/// - 入力は rgb8 (channels=3) または rgba8 (channels=4) を受け付ける。
+/// - options.png.compression で zlib 圧縮レベル (0-9) を指定。
+/// - `image.icc` があれば PNG の iCCP チャンクに埋め込む。
+pub const PngEncoder = struct {
+    pub const vtable = Encoder.VTable{
+        .encode = encodeImpl,
+        .deinit = deinitImpl,
+    };
+
+    fn encodeImpl(
+        ptr: *anyopaque,
+        image: decode.ImageBuffer,
+        options: EncodeOptions,
+        allocator: std.mem.Allocator,
+    ) EncodeError!EncodedBuffer {
+        _ = ptr;
+
+        if (image.channels != 3 and image.channels != 4)
+            return EncodeError.InvalidInput;
+
+        const opts = options.png;
+        var out_data: [*]u8 = undefined;
+        var out_len: usize = 0;
+
+        const icc_ptr: ?[*]const u8 = if (image.icc) |b| b.ptr else null;
+        const icc_len: usize = if (image.icc) |b| b.len else 0;
+
+        const result = pict_png_encode(
+            image.data.ptr,
+            @intCast(image.width),
+            @intCast(image.height),
+            @intCast(image.channels),
+            @intCast(opts.compression),
+            icc_ptr,
+            icc_len,
+            &out_data,
+            &out_len,
+        );
+
+        if (result != 0) return EncodeError.EncodingFailed;
+
+        const png_slice = out_data[0..out_len];
+        defer pict_png_free(out_data);
+
+        const zig_buf = try allocator.alloc(u8, out_len);
+        errdefer allocator.free(zig_buf);
+        @memcpy(zig_buf, png_slice);
+
+        return EncodedBuffer{
+            .format = .png,
+            .data = zig_buf,
+            .allocator = allocator,
+        };
+    }
+
+    fn deinitImpl(ptr: *anyopaque) void {
+        _ = ptr;
+    }
+};
+
+/// libpng で ImageBuffer を PNG にエンコードする Encoder を返す。
+pub fn pngEncoder() Encoder {
+    const Anchor = struct {
+        var byte: u8 = 0;
+    };
+    return .{
+        .ptr = &Anchor.byte,
+        .vtable = &PngEncoder.vtable,
+    };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // テスト
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -476,6 +579,119 @@ test "WebP encode then WebpDecoder: RGBA lossless roundtrip" {
     try std.testing.expectEqual(@as(u32, H), dec_buf.height);
     try std.testing.expectEqual(@as(u8, 4), dec_buf.channels);
     try std.testing.expectEqual(decode.PixelFormat.rgba8, dec_buf.format);
+}
+
+test "PngEncoder: encode RGB image" {
+    const W = 4;
+    const H = 4;
+    var pixels = [_]u8{ 255, 0, 0 } ** (W * H);
+    const img = decode.ImageBuffer{
+        .width = W, .height = H, .channels = 3,
+        .format = .rgb8, .data = &pixels,
+        .allocator = std.testing.allocator,
+    };
+    var enc = pngEncoder();
+    defer enc.deinit();
+    var out = try enc.encode(img, .{ .png = .{} }, std.testing.allocator);
+    defer out.deinit();
+    try std.testing.expectEqual(OutputFormat.png, out.format);
+    try std.testing.expect(out.data.len > 0);
+    // PNG マジック: \x89PNG
+    try std.testing.expectEqual(@as(u8, 0x89), out.data[0]);
+    try std.testing.expectEqualSlices(u8, "PNG", out.data[1..4]);
+}
+
+test "PngEncoder: encode RGBA image" {
+    const W = 2;
+    const H = 2;
+    var pixels = [_]u8{ 0, 128, 255, 200 } ** (W * H);
+    const img = decode.ImageBuffer{
+        .width = W, .height = H, .channels = 4,
+        .format = .rgba8, .data = &pixels,
+        .allocator = std.testing.allocator,
+    };
+    var enc = pngEncoder();
+    defer enc.deinit();
+    var out = try enc.encode(img, .{ .png = .{} }, std.testing.allocator);
+    defer out.deinit();
+    try std.testing.expect(out.data.len > 0);
+    try std.testing.expectEqual(@as(u8, 0x89), out.data[0]);
+}
+
+test "PngEncoder: compression=0 larger than compression=9" {
+    const W = 16;
+    const H = 16;
+    var pixels = [_]u8{128} ** (W * H * 3);
+    const img = decode.ImageBuffer{
+        .width = W, .height = H, .channels = 3,
+        .format = .rgb8, .data = &pixels,
+        .allocator = std.testing.allocator,
+    };
+    var enc = pngEncoder();
+    defer enc.deinit();
+    var out0 = try enc.encode(img, .{ .png = .{ .compression = 0 } }, std.testing.allocator);
+    defer out0.deinit();
+    var out9 = try enc.encode(img, .{ .png = .{ .compression = 9 } }, std.testing.allocator);
+    defer out9.deinit();
+    try std.testing.expect(out0.data.len >= out9.data.len);
+}
+
+test "PngEncoder: ICC profile embedded in iCCP chunk" {
+    const W = 2;
+    const H = 2;
+    var pixels = [_]u8{50} ** (W * H * 3);
+    // libpng は ICC プロファイルを検証する（最低 132 バイト、'acsp' シグネチャ、D50 照明体など必須）。
+    // ICC v2 最小構造: size(4) + cmm(4) + ver(4) + class(4) + cs(4) + pcs(4) + date(12)
+    //                  + 'acsp'(4) + platform(4) + flags(4) + mfr(4) + model(4) + attr(8)
+    //                  + intent(4) + illuminant(12) + creator(4) + id(16) + reserved(28) + tagCount(4)
+    var icc = [_]u8{0} ** 132;
+    icc[3] = 0x84;                                        // size = 132
+    icc[8] = 0x02;                                        // version major = 2
+    icc[12] = 0x6D; icc[13] = 0x6E; icc[14] = 0x74; icc[15] = 0x72; // 'mntr'
+    icc[16] = 0x52; icc[17] = 0x47; icc[18] = 0x42; icc[19] = 0x20; // 'RGB '
+    icc[20] = 0x58; icc[21] = 0x59; icc[22] = 0x5A; icc[23] = 0x20; // 'XYZ '
+    icc[36] = 0x61; icc[37] = 0x63; icc[38] = 0x73; icc[39] = 0x70; // 'acsp'
+    // D50 illuminant XYZ (libpng が ±5 以内を要求)
+    icc[70] = 0xF6; icc[71] = 0xD6; // X = 0x0000F6D6
+    icc[73] = 0x01;                  // Y = 0x00010000
+    icc[78] = 0xD3; icc[79] = 0x2D; // Z = 0x0000D32D
+    // tag count = 0 (bytes 128-131 already 0)
+    const img = decode.ImageBuffer{
+        .width = W, .height = H, .channels = 3,
+        .format = .rgb8, .data = &pixels,
+        .icc = &icc,
+        .allocator = std.testing.allocator,
+    };
+    var enc = pngEncoder();
+    defer enc.deinit();
+    var out = try enc.encode(img, .{ .png = .{} }, std.testing.allocator);
+    defer out.deinit();
+    // iCCP チャンク ("iCCP") が PNG バイト列内に存在することを確認
+    const png_bytes = out.data;
+    var found = false;
+    var i: usize = 8; // PNG シグネチャ 8 バイトを跳ばす
+    while (i + 12 <= png_bytes.len) {
+        if (std.mem.eql(u8, png_bytes[i + 4 .. i + 8], "iCCP")) {
+            found = true;
+            break;
+        }
+        const chunk_len = std.mem.readInt(u32, png_bytes[i..][0..4], .big);
+        i += 12 + chunk_len; // length(4) + type(4) + data(chunk_len) + crc(4)
+    }
+    try std.testing.expect(found);
+}
+
+test "PngEncoder: invalid channel count returns InvalidInput" {
+    var pixels = [_]u8{0} ** (4 * 4 * 2);
+    const img = decode.ImageBuffer{
+        .width = 4, .height = 4, .channels = 2,
+        .format = .rgb8, .data = &pixels,
+        .allocator = std.testing.allocator,
+    };
+    var enc = pngEncoder();
+    defer enc.deinit();
+    const result = enc.encode(img, .{ .png = .{} }, std.testing.allocator);
+    try std.testing.expectError(EncodeError.InvalidInput, result);
 }
 
 test "WebPEncoder: ImageBuffer.icc embedded as WebP ICCP" {

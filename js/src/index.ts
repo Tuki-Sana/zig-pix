@@ -105,6 +105,10 @@ const _encode_avif = _lib.func(
   "uint8 *pict_encode_avif(const uint8 *pixels, uint32 width, uint32 height, uint8 channels, uint8 quality, uint8 speed, uint64 *out_len)"
 );
 
+const _encode_png = _lib.func(
+  "uint8 *pict_encode_png(const uint8 *pixels, uint32 width, uint32 height, uint8 channels, uint8 compression, uint8 *icc, uint64 icc_len, uint64 *out_len)"
+);
+
 const _free = _lib.func("void pict_free_buffer(uint8 *ptr, uint64 len)");
 
 // ── Internal helper ───────────────────────────────────────────────────────────
@@ -163,6 +167,11 @@ export interface AvifOptions {
    * 10 = fastest (lower quality), 0 = slowest (best quality).
    */
   speed?: number;
+}
+
+export interface PngOptions {
+  /** zlib compression level 0–9 (default: 6) */
+  compression?: number;
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -291,6 +300,33 @@ export function encodeAvif(image: ImageBuffer, options: AvifOptions = {}): Buffe
     outLen,
   );
   if (ptr === null) return null;
+
+  return copyAndFree(ptr, outLen[0]);
+}
+
+/**
+ * Encode pixel data as PNG.
+ * @throws {Error} if compression is not an integer 0–9, or if encoding fails
+ */
+export function encodePng(image: ImageBuffer, options: PngOptions = {}): Buffer {
+  const { compression = 6 } = options;
+
+  if (!Number.isInteger(compression) || compression < 0 || compression > 9) {
+    throw new Error("zenpix: compression must be an integer 0–9");
+  }
+
+  const icc = image.icc;
+  const iccLen = icc !== undefined && icc.byteLength > 0 ? BigInt(icc.byteLength) : 0n;
+  const outLen = new BigUint64Array(1);
+  const ptr = _encode_png(
+    image.data,
+    image.width, image.height, image.channels,
+    compression,
+    icc !== undefined && icc.byteLength > 0 ? icc : null,
+    iccLen,
+    outLen,
+  );
+  if (ptr === null) throw new Error("zenpix: PNG encoding failed");
 
   return copyAndFree(ptr, outLen[0]);
 }

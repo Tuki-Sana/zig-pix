@@ -69,6 +69,11 @@ const pict_encode_avif = lib.func(
   "uint8 *pict_encode_avif(const uint8 *pixels, uint32 width, uint32 height, uint8 channels, uint8 quality, uint8 speed, uint64 *out_len)"
 );
 
+// pict_encode_png(pixels, width, height, channels, compression, icc, icc_len, out_len) -> uint8 * | null
+const pict_encode_png = lib.func(
+  "uint8 *pict_encode_png(const uint8 *pixels, uint32 width, uint32 height, uint8 channels, uint8 compression, uint8 *icc, uint64 icc_len, uint64 *out_len)"
+);
+
 // pict_free_buffer(ptr, len) -> void
 const pict_free_buffer = lib.func(
   "void pict_free_buffer(uint8 *ptr, uint64 len)"
@@ -341,11 +346,31 @@ try {
       pass("G: encode_avif speed=255 — returned null as expected");
     }
   }
+  // ── Case H: pict_encode_png ───────────────────────────────────────────
+  {
+    const W = 4, H = 4, CH = 4;
+    const pixels = Buffer.alloc(W * H * CH, 128);
+    const outLen = new BigUint64Array(1);
+
+    const result = pict_encode_png(pixels, W, H, CH, 6, null, 0n, outLen);
+    if (result === null) {
+      fail("H: pict_encode_png", "returned null");
+    } else {
+      const buf: Buffer = koffi.decode(result, "uint8", Number(outLen[0]));
+      const isPng = buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47;
+      pict_free_buffer(result, outLen[0]);
+      if (!isPng) {
+        fail("H: pict_encode_png", `PNG magic mismatch: ${buf.slice(0,4).toString("hex")}`);
+      } else {
+        pass(`H: pict_encode_png — PNG magic verified, out_len=${outLen[0]}`);
+      }
+    }
+  }
 } finally {
   lib?.unload();
 }
 
-const TOTAL = 8;
+const TOTAL = 9;
 if (failed > 0) {
   console.error(`\n${failed} / ${TOTAL} test(s) FAILED.`);
   process.exit(1);

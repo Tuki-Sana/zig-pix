@@ -90,6 +90,20 @@ const lib = dlopen(LIB_PATH, {
     ],
     returns: FFIType.ptr,
   },
+  // pict_encode_png(pixels, width, height, channels, compression, icc, icc_len, out_len) -> ?[*]u8
+  pict_encode_png: {
+    args: [
+      FFIType.ptr, // pixels: [*c]const u8
+      FFIType.u32, // width: u32
+      FFIType.u32, // height: u32
+      FFIType.u8,  // channels: u8
+      FFIType.u8,  // compression: u8 (0-9)
+      FFIType.ptr, // icc: ?*const u8
+      FFIType.u64, // icc_len: usize
+      FFIType.ptr, // out_len: ?*usize
+    ],
+    returns: FFIType.ptr,
+  },
   // pict_free_buffer(ptr, len) -> void
   pict_free_buffer: {
     args: [
@@ -376,11 +390,47 @@ try {
       pass("G: encode_avif speed=255 — returned null as expected");
     }
   }
+  // ── Case H: pict_encode_png ───────────────────────────────────────────
+  // Encode a 4×4 RGBA buffer as PNG; verify PNG magic (\x89PNG) in output.
+  {
+    const W = 4;
+    const H = 4;
+    const CH = 4;
+    const pixels = new Uint8Array(W * H * CH).fill(128);
+    const outLen = new BigUint64Array(1);
+
+    const result = symbols.pict_encode_png(
+      ptr(pixels),
+      W, H, CH,
+      6,    // compression
+      null, // no ICC
+      0n,
+      ptr(outLen),
+    );
+
+    if (result === null) {
+      fail("H: pict_encode_png", "returned null");
+    } else {
+      const header = new Uint8Array(toArrayBuffer(result, 0, 4));
+      const isPng =
+        header[0] === 0x89 &&
+        header[1] === 0x50 && // 'P'
+        header[2] === 0x4E && // 'N'
+        header[3] === 0x47;   // 'G'
+      symbols.pict_free_buffer(result, outLen[0]);
+      if (!isPng) {
+        const hex = Array.from(header).map(b => b.toString(16).padStart(2, "0")).join(" ");
+        fail("H: pict_encode_png", `PNG magic mismatch: ${hex}`);
+      } else {
+        pass(`H: pict_encode_png — PNG magic verified, out_len=${outLen[0]}`);
+      }
+    }
+  }
 } finally {
   lib.close();
 }
 
-const TOTAL = 8;
+const TOTAL = 9;
 if (failed > 0) {
   console.error(`\n${failed} / ${TOTAL} test(s) FAILED.`);
   process.exit(1);

@@ -8,7 +8,7 @@
  *   deno run --allow-read --allow-ffi --allow-env test/ffi/test.deno.ts
  */
 
-import { decode, resize, encodeWebP, encodeAvif } from "../../js/src/index.deno.ts";
+import { decode, resize, encodeWebP, encodeAvif, encodePng } from "../../js/src/index.deno.ts";
 
 // ── Hardcoded 1×1 RGBA PNG (70 bytes, CRC 検証済み, zero external deps) ──────
 // R=255, G=0, B=0, A=255 の単色 1×1 ピクセル
@@ -142,8 +142,31 @@ function fail(label: string, reason: string): void {
   }
 }
 
+// ── Case H: encodePng ─────────────────────────────────────────────────────────
+// Encode a 4×4 RGB image as PNG; verify PNG magic bytes.
+{
+  try {
+    const raw = new Uint8Array(4 * 4 * 3).fill(128);
+    const img = { data: raw, width: 4, height: 4, channels: 3 };
+    const png = encodePng(img, { compression: 6 });
+    const isPng =
+      png[0] === 0x89 &&
+      png[1] === 0x50 && // 'P'
+      png[2] === 0x4E && // 'N'
+      png[3] === 0x47;   // 'G'
+    if (!isPng) {
+      const hex = Array.from(png.slice(0, 4)).map(b => b.toString(16).padStart(2, "0")).join(" ");
+      fail("H: encodePng", `PNG magic mismatch: ${hex}`);
+    } else {
+      pass(`H: encodePng — PNG magic verified, out_len=${png.byteLength}`);
+    }
+  } catch (e) {
+    fail("H: encodePng", e instanceof Error ? e.message : String(e));
+  }
+}
+
 // ── Summary ───────────────────────────────────────────────────────────────────
-const TOTAL = 6; // A, B, C, E, G×2
+const TOTAL = 7; // A, B, C, E, G×2, H
 if (failed > 0) {
   console.error(`\n${failed} / ${TOTAL} test(s) FAILED.`);
   Deno.exit(1);
