@@ -19,6 +19,13 @@
 #include <jpeglib.h>
 #include <jerror.h>
 
+/* Windows DLL: pict_jpeg_orientation は Zig export fn を持たないため明示的にエクスポート */
+#ifdef _WIN32
+#  define PICT_EXPORT __declspec(dllexport)
+#else
+#  define PICT_EXPORT
+#endif
+
 /* ── Extended error manager ─────────────────────────────────────────────── */
 
 typedef struct {
@@ -277,7 +284,7 @@ static unsigned long be32(const unsigned char *p) {
            ((unsigned long)p[2] <<  8) |  (unsigned long)p[3];
 }
 
-unsigned char pict_jpeg_orientation(const unsigned char *data, unsigned long len) {
+PICT_EXPORT unsigned char pict_jpeg_orientation(const unsigned char *data, unsigned long len) {
     /* Minimum JPEG: FF D8 + at least one more byte */
     if (!data || len < 3) return 1;
     if (data[0] != 0xFF || data[1] != 0xD8) return 1;
