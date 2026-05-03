@@ -9,6 +9,7 @@ const std = @import("std");
 pub const decode = @import("pipeline/decode.zig");
 pub const encode = @import("pipeline/encode.zig");
 pub const resize = @import("pipeline/resize.zig");
+pub const crop   = @import("pipeline/crop.zig");
 
 const has_avif = @import("avif_options").has_avif;
 
@@ -370,7 +371,29 @@ export fn pict_encode_png(
     return ptr;
 }
 
-/// pict_decode / pict_decode_v2 / pict_decode_v3 / pict_resize / pict_encode_webp / pict_encode_webp_v2 / pict_encode_avif / pict_encode_png
+/// ピクセルデータから矩形を切り出す。
+/// 失敗時（null / ゼロ次元 / 範囲外 / OOM）: null。out_len は変更しない。
+export fn pict_crop(
+    pixels: [*c]const u8,
+    src_w: u32,
+    src_h: u32,
+    channels: u8,
+    left: u32,
+    top: u32,
+    crop_w: u32,
+    crop_h: u32,
+    out_len: ?*usize,
+) ?[*]u8 {
+    if (pixels == null or out_len == null) return null;
+    if (src_w == 0 or src_h == 0 or channels == 0) return null;
+    const src_size = mul3SizeChecked(src_w, src_h, channels) orelse return null;
+
+    const dst = crop.crop(pixels[0..src_size], src_w, src_h, channels, left, top, crop_w, crop_h, ffi_alloc) catch return null;
+    out_len.?.* = dst.len;
+    return dst.ptr;
+}
+
+/// pict_decode / pict_decode_v2 / pict_decode_v3 / pict_resize / pict_encode_webp / pict_encode_webp_v2 / pict_encode_avif / pict_encode_png / pict_crop
 /// が返したバッファを解放する。
 /// pict_decode_v3 の埋め込み ICC バッファ (*out_icc) も同じくこの関数で解放する。
 export fn pict_free_buffer(ptr: [*]u8, len: usize) void {
@@ -383,6 +406,7 @@ test {
     _ = decode;
     _ = encode;
     _ = resize;
+    _ = crop;
     _ = mem.ring;
     _ = mem.tile;
     _ = platform;
@@ -679,4 +703,52 @@ test "pict_decode: 不正データは null を返す" {
     var out_ch: u8 = 0;
     const ptr = pict_decode(bad[0..].ptr, bad.len, &out_w, &out_h, &out_ch);
     try std.testing.expectEqual(@as(?[*]u8, null), ptr);
+}
+
+test "pict_crop: 4x4 RGBA から 2x2 を切り出す (成功系)" {
+    const W: u32 = 4;
+    const H: u32 = 4;
+    const CH: u8 = 4;
+    var src = [_]u8{0} ** (W * H * CH);
+    // ピクセル (row, col, 0, 255)
+    for (0..H) |r| {
+        for (0..W) |c| {
+            const off = (r * W + c) * CH;
+            src[off + 0] = @intCast(r * 10);
+            src[off + 1] = @intCast(c * 10);
+            src[off + 2] = 0;
+            src[off + 3] = 255;
+        }
+    }
+    var out_len: usize = 0;
+    const ptr = pict_crop(src[0..].ptr, W, H, CH, 1, 1, 2, 2, &out_len) orelse
+        return error.CropFailed;
+    defer pict_free_buffer(ptr, out_len);
+
+    try std.testing.expectEqual(@as(usize, 2 * 2 * CH), out_len);
+    // (1,1): R=10, G=10
+    try std.testing.expectEqual(@as(u8, 10), ptr[0]);
+    try std.testing.expectEqual(@as(u8, 10), ptr[1]);
+}
+
+test "pict_crop: out_len=null は null を返す (Category A)" {
+    var src = [_]u8{0} ** (4 * 4 * 4);
+    const ptr = pict_crop(src[0..].ptr, 4, 4, 4, 0, 0, 2, 2, null);
+    try std.testing.expectEqual(@as(?[*]u8, null), ptr);
+}
+
+test "pict_crop: null 入力で null 返却、out_len 不変 (Category B)" {
+    var out_len: usize = 0xDEAD;
+    const ptr = pict_crop(@as([*c]const u8, null), 4, 4, 4, 0, 0, 2, 2, &out_len);
+    try std.testing.expectEqual(@as(?[*]u8, null), ptr);
+    try std.testing.expectEqual(@as(usize, 0xDEAD), out_len);
+}
+
+test "pict_crop: 範囲外で null 返却、out_len 不変 (Category B)" {
+    var src = [_]u8{0} ** (4 * 4 * 4);
+    var out_len: usize = 0xDEAD;
+    // left=3, crop_w=2 → 3+2=5 > 4
+    const ptr = pict_crop(src[0..].ptr, 4, 4, 4, 3, 0, 2, 2, &out_len);
+    try std.testing.expectEqual(@as(?[*]u8, null), ptr);
+    try std.testing.expectEqual(@as(usize, 0xDEAD), out_len);
 }

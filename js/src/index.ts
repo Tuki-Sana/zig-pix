@@ -109,6 +109,10 @@ const _encode_png = _lib.func(
   "uint8 *pict_encode_png(const uint8 *pixels, uint32 width, uint32 height, uint8 channels, uint8 compression, uint8 *icc, uint64 icc_len, uint64 *out_len)"
 );
 
+const _crop = _lib.func(
+  "uint8 *pict_crop(const uint8 *pixels, uint32 src_w, uint32 src_h, uint8 channels, uint32 left, uint32 top, uint32 crop_w, uint32 crop_h, uint64 *out_len)"
+);
+
 const _free = _lib.func("void pict_free_buffer(uint8 *ptr, uint64 len)");
 
 // ── Internal helper ───────────────────────────────────────────────────────────
@@ -172,6 +176,13 @@ export interface AvifOptions {
 export interface PngOptions {
   /** zlib compression level 0–9 (default: 6) */
   compression?: number;
+}
+
+export interface CropOptions {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -329,4 +340,43 @@ export function encodePng(image: ImageBuffer, options: PngOptions = {}): Buffer 
   if (ptr === null) throw new Error("zenpix: PNG encoding failed");
 
   return copyAndFree(ptr, outLen[0]);
+}
+
+/**
+ * Crop a rectangular region from pixel data.
+ * ICC profile is carried through to the output.
+ * @throws {Error} if options are invalid or the crop region is out of bounds
+ */
+export function crop(image: ImageBuffer, options: CropOptions): ImageBuffer {
+  const { left, top, width, height } = options;
+
+  for (const [name, val] of [["left", left], ["top", top], ["width", width], ["height", height]] as [string, number][]) {
+    if (!Number.isInteger(val) || val < 0 || val > 0xFFFFFFFF) {
+      throw new Error(`zenpix: crop ${name} must be a non-negative integer ≤ 4294967295`);
+    }
+  }
+  if (width === 0 || height === 0) {
+    throw new Error("zenpix: crop width and height must be > 0");
+  }
+
+  const outLen = new BigUint64Array(1);
+  const ptr = _crop(
+    image.data,
+    image.width, image.height, image.channels,
+    left, top, width, height,
+    outLen,
+  );
+
+  if (ptr === null) throw new Error("zenpix: crop failed (region out of bounds or invalid input)");
+
+  const out: ImageBuffer = {
+    data:     copyAndFree(ptr, outLen[0]),
+    width,
+    height,
+    channels: image.channels,
+  };
+  if (image.icc !== undefined && image.icc.byteLength > 0) {
+    out.icc = Buffer.from(image.icc);
+  }
+  return out;
 }

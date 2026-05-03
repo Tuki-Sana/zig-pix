@@ -1,7 +1,7 @@
 /**
  * test/e2e/e2e.node.ts — End-to-end integration test (Node.js / Bun)
  *
- * Tests the full pipeline: decode → resize → encodeWebP → decode(WebP) → encodeAvif → encodePng
+ * Tests the full pipeline: decode → resize → encodeWebP → decode(WebP) → encodeAvif → encodePng → crop
  * using a real 128×128 PNG fixture file.
  *
  * Judgment criteria (intentionally loose to avoid flakes):
@@ -15,7 +15,7 @@
  *   bun run test/e2e/e2e.node.ts        (Bun)
  */
 
-import { decode, resize, encodeWebP, encodeAvif, encodePng } from "zenpix";
+import { decode, resize, encodeWebP, encodeAvif, encodePng, crop } from "zenpix";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
@@ -134,13 +134,34 @@ try {
   } catch (e) {
     fail("encodePng", e instanceof Error ? e.message : String(e));
   }
+
+  // ── Step 7: crop → encodePng ────────────────────────────────────────────────
+  try {
+    const cropped = crop(small, { left: 0, top: 0, width: 32, height: 32 });
+    if (cropped.width !== 32 || cropped.height !== 32) {
+      fail("crop dimensions", `expected 32x32, got ${cropped.width}x${cropped.height}`);
+    } else if (cropped.data.byteLength !== 32 * 32 * cropped.channels) {
+      fail("crop data length", `expected ${32 * 32 * cropped.channels}, got ${cropped.data.byteLength}`);
+    } else {
+      pass(`crop — 64x64→32x32 ch=${cropped.channels}`);
+      const croppedPng = encodePng(cropped);
+      const isPng = croppedPng[0] === 0x89 && croppedPng[1] === 0x50 && croppedPng[2] === 0x4E && croppedPng[3] === 0x47;
+      if (!isPng) {
+        fail("crop→encodePng header", "PNG magic not found");
+      } else {
+        pass(`crop→encodePng — PNG magic verified, len=${croppedPng.byteLength}`);
+      }
+    }
+  } catch (e) {
+    fail("crop", e instanceof Error ? e.message : String(e));
+  }
 } catch (e) {
   console.error("Unexpected error:", e instanceof Error ? e.message : e);
   process.exit(1);
 }
 
 // ── Summary ──────────────────────────────────────────────────────────────────
-const TOTAL = 6;
+const TOTAL = 8;
 if (failed > 0) {
   console.error(`\n${failed} / ${TOTAL} E2E test(s) FAILED.`);
   process.exit(1);

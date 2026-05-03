@@ -8,7 +8,7 @@
  *   deno run --allow-read --allow-ffi --allow-env test/ffi/test.deno.ts
  */
 
-import { decode, resize, encodeWebP, encodeAvif, encodePng } from "../../js/src/index.deno.ts";
+import { decode, resize, encodeWebP, encodeAvif, encodePng, crop } from "../../js/src/index.deno.ts";
 
 // ── Hardcoded 1×1 RGBA PNG (70 bytes, CRC 検証済み, zero external deps) ──────
 // R=255, G=0, B=0, A=255 の単色 1×1 ピクセル
@@ -165,8 +165,26 @@ function fail(label: string, reason: string): void {
   }
 }
 
+// ── Case I: crop ─────────────────────────────────────────────────────────────
+// Crop a 4×4 RGBA image to 2×2; verify dimensions and byte length.
+{
+  try {
+    const raw = new Uint8Array(4 * 4 * 4).fill(128);
+    const img = { data: raw, width: 4, height: 4, channels: 4 };
+    const cropped = crop(img, { left: 1, top: 1, width: 2, height: 2 });
+    const expectedLen = 2 * 2 * 4;
+    if (cropped.width !== 2 || cropped.height !== 2 || cropped.data.byteLength !== expectedLen) {
+      fail("I: crop", `got ${cropped.width}x${cropped.height} len=${cropped.data.byteLength}, expected 2x2 len=${expectedLen}`);
+    } else {
+      pass(`I: crop — 4x4→2x2 RGBA, len=${cropped.data.byteLength}`);
+    }
+  } catch (e) {
+    fail("I: crop", e instanceof Error ? e.message : String(e));
+  }
+}
+
 // ── Summary ───────────────────────────────────────────────────────────────────
-const TOTAL = 7; // A, B, C, E, G×2, H
+const TOTAL = 8; // A, B, C, E, G×2, H, I
 if (failed > 0) {
   console.error(`\n${failed} / ${TOTAL} test(s) FAILED.`);
   Deno.exit(1);

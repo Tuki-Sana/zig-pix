@@ -74,6 +74,11 @@ const pict_encode_png = lib.func(
   "uint8 *pict_encode_png(const uint8 *pixels, uint32 width, uint32 height, uint8 channels, uint8 compression, uint8 *icc, uint64 icc_len, uint64 *out_len)"
 );
 
+// pict_crop(pixels, src_w, src_h, channels, left, top, crop_w, crop_h, out_len) -> uint8 * | null
+const pict_crop = lib.func(
+  "uint8 *pict_crop(const uint8 *pixels, uint32 src_w, uint32 src_h, uint8 channels, uint32 left, uint32 top, uint32 crop_w, uint32 crop_h, uint64 *out_len)"
+);
+
 // pict_free_buffer(ptr, len) -> void
 const pict_free_buffer = lib.func(
   "void pict_free_buffer(uint8 *ptr, uint64 len)"
@@ -366,11 +371,30 @@ try {
       }
     }
   }
+  // ── Case I: pict_crop ────────────────────────────────────────────────────
+  {
+    const W = 4, H = 4, CH = 4;
+    const pixels = Buffer.alloc(W * H * CH, 128);
+    const outLen = new BigUint64Array(1);
+
+    const result = pict_crop(pixels, W, H, CH, 1, 1, 2, 2, outLen);
+    if (result === null) {
+      fail("I: pict_crop", "returned null");
+    } else {
+      const expected = BigInt(2 * 2 * CH);
+      if (outLen[0] !== expected) {
+        fail("I: pict_crop", `out_len ${outLen[0]} != ${expected}`);
+      } else {
+        pass(`I: pict_crop — 4x4→2x2 RGBA, out_len=${outLen[0]}`);
+      }
+      pict_free_buffer(result, outLen[0]);
+    }
+  }
 } finally {
   lib?.unload();
 }
 
-const TOTAL = 9;
+const TOTAL = 10;
 if (failed > 0) {
   console.error(`\n${failed} / ${TOTAL} test(s) FAILED.`);
   process.exit(1);

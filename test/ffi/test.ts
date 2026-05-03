@@ -90,6 +90,21 @@ const lib = dlopen(LIB_PATH, {
     ],
     returns: FFIType.ptr,
   },
+  // pict_crop(pixels, src_w, src_h, channels, left, top, crop_w, crop_h, out_len) -> ?[*]u8
+  pict_crop: {
+    args: [
+      FFIType.ptr, // pixels
+      FFIType.u32, // src_w
+      FFIType.u32, // src_h
+      FFIType.u8,  // channels
+      FFIType.u32, // left
+      FFIType.u32, // top
+      FFIType.u32, // crop_w
+      FFIType.u32, // crop_h
+      FFIType.ptr, // out_len
+    ],
+    returns: FFIType.ptr,
+  },
   // pict_encode_png(pixels, width, height, channels, compression, icc, icc_len, out_len) -> ?[*]u8
   pict_encode_png: {
     args: [
@@ -426,14 +441,44 @@ try {
       }
     }
   }
+  // ── Case I: pict_crop ────────────────────────────────────────────────────
+  // Crop a 4×4 RGBA buffer to 2×2; verify out_len == 2*2*4.
+  {
+    const W = 4;
+    const H = 4;
+    const CH = 4;
+    const pixels = new Uint8Array(W * H * CH).fill(128);
+    const outLen = new BigUint64Array(1);
+
+    const result = symbols.pict_crop(
+      ptr(pixels),
+      W, H, CH,
+      1, 1, // left, top
+      2, 2, // crop_w, crop_h
+      ptr(outLen),
+    );
+
+    if (result === null) {
+      fail("I: pict_crop", "returned null");
+    } else {
+      const expected = BigInt(2 * 2 * CH);
+      if (outLen[0] !== expected) {
+        fail("I: pict_crop", `out_len ${outLen[0]} != ${expected}`);
+      } else {
+        pass(`I: pict_crop — 4x4→2x2 RGBA, out_len=${outLen[0]}`);
+      }
+      symbols.pict_free_buffer(result, outLen[0]);
+    }
+  }
 } finally {
   lib.close();
 }
 
-const TOTAL = 9;
+const TOTAL = 10;
 if (failed > 0) {
   console.error(`\n${failed} / ${TOTAL} test(s) FAILED.`);
   process.exit(1);
 } else {
   console.log(`\nAll ${TOTAL} tests passed.`);
+
 }
