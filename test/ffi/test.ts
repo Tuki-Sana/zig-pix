@@ -119,6 +119,28 @@ const lib = dlopen(LIB_PATH, {
     ],
     returns: FFIType.ptr,
   },
+  // pict_jpeg_orientation(data, len) -> u8
+  pict_jpeg_orientation: {
+    args: [
+      FFIType.ptr, // data: [*c]const u8
+      FFIType.u64, // len: usize (c_ulong)
+    ],
+    returns: FFIType.u8,
+  },
+  // pict_rotate(pixels, src_w, src_h, channels, orientation, out_w, out_h, out_len) -> ?[*]u8
+  pict_rotate: {
+    args: [
+      FFIType.ptr, // pixels: [*c]const u8
+      FFIType.u32, // src_w: u32
+      FFIType.u32, // src_h: u32
+      FFIType.u8,  // channels: u8
+      FFIType.u8,  // orientation: u8
+      FFIType.ptr, // out_w: ?*u32
+      FFIType.ptr, // out_h: ?*u32
+      FFIType.ptr, // out_len: ?*usize
+    ],
+    returns: FFIType.ptr,
+  },
   // pict_free_buffer(ptr, len) -> void
   pict_free_buffer: {
     args: [
@@ -441,6 +463,68 @@ try {
       }
     }
   }
+  // ── Case J: pict_jpeg_orientation + pict_rotate ──────────────────────────
+  // Decode orientation=6 JPEG, rotate it, verify width/height are swapped.
+  {
+    const fixturePath = join(repoRoot, "test/fixtures/jpeg_orientation_6.jpg");
+    let jpegBytes: Uint8Array;
+    try {
+      jpegBytes = readFileSync(fixturePath);
+    } catch {
+      fail("J: pict_jpeg_orientation+rotate", `missing fixture ${fixturePath}`);
+      jpegBytes = new Uint8Array(0);
+    }
+    if (jpegBytes.byteLength > 0) {
+      const orientation = symbols.pict_jpeg_orientation(
+        ptr(jpegBytes),
+        BigInt(jpegBytes.byteLength),
+      );
+      if (orientation !== 6) {
+        fail("J: pict_jpeg_orientation", `expected orientation=6, got ${orientation}`);
+      } else {
+        // Decode to raw pixels
+        const outW   = new Uint32Array(1);
+        const outH   = new Uint32Array(1);
+        const outCh  = new Uint8Array(1);
+        const outLen = new BigUint64Array(1);
+        const pixPtr = symbols.pict_decode_v2(
+          ptr(jpegBytes),
+          BigInt(jpegBytes.byteLength),
+          ptr(outW), ptr(outH), ptr(outCh), ptr(outLen),
+        );
+        if (pixPtr === null) {
+          fail("J: pict_rotate", "pict_decode_v2 returned null");
+        } else {
+          const srcW = outW[0];
+          const srcH = outH[0];
+          const ch   = outCh[0];
+          const rotOutW   = new Uint32Array(1);
+          const rotOutH   = new Uint32Array(1);
+          const rotOutLen = new BigUint64Array(1);
+          const rotPtr = symbols.pict_rotate(
+            pixPtr,
+            srcW, srcH, ch,
+            6,
+            ptr(rotOutW), ptr(rotOutH), ptr(rotOutLen),
+          );
+          symbols.pict_free_buffer(pixPtr, outLen[0]);
+          if (rotPtr === null) {
+            fail("J: pict_rotate", "returned null for orientation=6");
+          } else {
+            // orientation=6 (90°CW): wh swapped
+            const ok = rotOutW[0] === srcH && rotOutH[0] === srcW;
+            symbols.pict_free_buffer(rotPtr, rotOutLen[0]);
+            if (!ok) {
+              fail("J: pict_rotate", `expected ${srcH}x${srcW}, got ${rotOutW[0]}x${rotOutH[0]}`);
+            } else {
+              pass(`J: pict_jpeg_orientation+rotate — orientation=${orientation}, rotated ${srcW}x${srcH}→${rotOutW[0]}x${rotOutH[0]}`);
+            }
+          }
+        }
+      }
+    }
+  }
+
   // ── Case I: pict_crop ────────────────────────────────────────────────────
   // Crop a 4×4 RGBA buffer to 2×2; verify out_len == 2*2*4.
   {
@@ -474,7 +558,7 @@ try {
   lib.close();
 }
 
-const TOTAL = 10;
+const TOTAL = 11;
 if (failed > 0) {
   console.error(`\n${failed} / ${TOTAL} test(s) FAILED.`);
   process.exit(1);

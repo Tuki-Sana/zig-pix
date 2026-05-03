@@ -81,6 +81,8 @@ writeFileSync("thumb.webp", thumbWebP);
 
 JPEG・PNG・静止画 WebP をデコードして生ピクセルデータを返します。内部では埋め込み ICC も取り出せる `pict_decode_v3` を使います。HEIC / HEIF・アニメーション WebP・その他の形式は **未対応**（失敗時は `zenpix: decode failed`）。
 
+**JPEG の EXIF Orientation は自動適用されます。** orientation=6（90° CW）の JPEG では返される `width` / `height` が正位置に合わせて交換されます（orientation=1 は追加処理なし）。
+
 ```typescript
 interface ImageBuffer {
   data: Buffer;     // 生ピクセル（row-major, top-left origin）

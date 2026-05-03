@@ -152,13 +152,27 @@ try {
   } catch (e) {
     fail("crop", e instanceof Error ? e.message : String(e));
   }
+
+  // ── Step 8: decode EXIF orientation=6 JPEG ─────────────────────────────────
+  try {
+    const jpegFixture = Deno.readFileSync(join(__dirname, "../fixtures/jpeg_orientation_6.jpg"));
+    const jpegImg = decode(jpegFixture);
+    // Source is 403×302; orientation=6 (90°CW) auto-rotation → 302×403
+    if (jpegImg.width !== 302 || jpegImg.height !== 403) {
+      fail("decode EXIF orientation=6", `expected 302x403, got ${jpegImg.width}x${jpegImg.height}`);
+    } else {
+      pass(`decode EXIF orientation=6 — ${jpegImg.width}x${jpegImg.height} (wh swapped correctly)`);
+    }
+  } catch (e) {
+    fail("decode EXIF orientation=6", e instanceof Error ? e.message : String(e));
+  }
 } catch (e) {
   console.error("Unexpected error:", e instanceof Error ? e.message : e);
   Deno.exit(1);
 }
 
 // ── Summary ──────────────────────────────────────────────────────────────────
-const TOTAL = 8;
+const TOTAL = 9; // 1, 2, 3, decode(WebP), 5, 6, 7, crop→encodePng, 8
 if (failed > 0) {
   console.error(`\n${failed} / ${TOTAL} E2E test(s) FAILED.`);
   Deno.exit(1);

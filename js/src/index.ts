@@ -113,6 +113,14 @@ const _crop = _lib.func(
   "uint8 *pict_crop(const uint8 *pixels, uint32 src_w, uint32 src_h, uint8 channels, uint32 left, uint32 top, uint32 crop_w, uint32 crop_h, uint64 *out_len)"
 );
 
+const _jpeg_orientation = _lib.func(
+  "uint8 pict_jpeg_orientation(const uint8 *data, uint64 len)"
+);
+
+const _rotate = _lib.func(
+  "uint8 *pict_rotate(const uint8 *pixels, uint32 src_w, uint32 src_h, uint8 channels, uint8 orientation, uint32 *out_w, uint32 *out_h, uint64 *out_len)"
+);
+
 const _free = _lib.func("void pict_free_buffer(uint8 *ptr, uint64 len)");
 
 // ── Internal helper ───────────────────────────────────────────────────────────
@@ -204,15 +212,36 @@ export function decode(input: Buffer | Uint8Array): ImageBuffer {
   const iccPtrSlot: unknown[] = [null];
   const iccLen = new BigUint64Array(1);
 
-  const ptr = _decode_v3(buf, BigInt(buf.byteLength), outW, outH, outCh, outLen, iccPtrSlot, iccLen);
-  if (ptr === null) {
+  const pixPtr = _decode_v3(buf, BigInt(buf.byteLength), outW, outH, outCh, outLen, iccPtrSlot, iccLen);
+  if (pixPtr === null) {
     throw new Error("zenpix: decode failed (unsupported format or corrupt data)");
   }
 
+  const orientation: number = _jpeg_orientation(buf, BigInt(buf.byteLength));
+
+  let finalPtr: unknown = pixPtr;
+  let finalLen = outLen[0];
+  let finalW = outW[0];
+  let finalH = outH[0];
+
+  if (orientation !== 1) {
+    const rotOutW   = new Uint32Array(1);
+    const rotOutH   = new Uint32Array(1);
+    const rotOutLen = new BigUint64Array(1);
+    const rotPtr = _rotate(pixPtr, outW[0], outH[0], outCh[0], orientation, rotOutW, rotOutH, rotOutLen);
+    if (rotPtr !== null) {
+      _free(pixPtr, outLen[0]);
+      finalPtr = rotPtr;
+      finalLen = rotOutLen[0];
+      finalW = rotOutW[0];
+      finalH = rotOutH[0];
+    }
+  }
+
   const out: ImageBuffer = {
-    data: copyAndFree(ptr, outLen[0]),
-    width:    outW[0],
-    height:   outH[0],
+    data: copyAndFree(finalPtr, finalLen),
+    width:    finalW,
+    height:   finalH,
     channels: outCh[0],
   };
 

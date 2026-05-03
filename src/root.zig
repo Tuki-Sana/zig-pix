@@ -10,6 +10,7 @@ pub const decode = @import("pipeline/decode.zig");
 pub const encode = @import("pipeline/encode.zig");
 pub const resize = @import("pipeline/resize.zig");
 pub const crop   = @import("pipeline/crop.zig");
+pub const rotate = @import("pipeline/rotate.zig");
 
 const has_avif = @import("avif_options").has_avif;
 
@@ -393,7 +394,46 @@ export fn pict_crop(
     return dst.ptr;
 }
 
-/// pict_decode / pict_decode_v2 / pict_decode_v3 / pict_resize / pict_encode_webp / pict_encode_webp_v2 / pict_encode_avif / pict_encode_png / pict_crop
+/// ピクセルデータを EXIF Orientation に従って変換する。
+/// orientation=1 または不正値: null を返す（呼び出し元は元バッファをそのまま使う）。
+/// それ以外: 新しいバッファを返す (pict_free_buffer(ptr, out_len) で解放)。
+/// 向き 5-8 は幅高さが交換されるため out_w / out_h を必ず読むこと。
+export fn pict_rotate(
+    pixels: [*c]const u8,
+    src_w: u32,
+    src_h: u32,
+    channels: u8,
+    orientation: u8,
+    out_w: ?*u32,
+    out_h: ?*u32,
+    out_len: ?*usize,
+) ?[*]u8 {
+    if (pixels == null or out_w == null or out_h == null or out_len == null) return null;
+    if (orientation == 1 or orientation > 8) return null;
+    if (src_w == 0 or src_h == 0 or channels == 0) return null;
+    if (channels != 3 and channels != 4) return null;
+
+    const src_size = mul3SizeChecked(src_w, src_h, channels) orelse return null;
+
+    const src_buf = decode.ImageBuffer{
+        .data      = @constCast(pixels[0..src_size]),
+        .width     = src_w,
+        .height    = src_h,
+        .channels  = channels,
+        .format    = if (channels == 4) .rgba8 else .rgb8,
+        .icc       = null,
+        .allocator = ffi_alloc,
+    };
+
+    const dst = rotate.rotate(src_buf, orientation, ffi_alloc) catch return null;
+    // orientation=1 は元ポインタを返すが、ここでは orientation != 1 が保証されている
+    out_w.?.* = dst.width;
+    out_h.?.* = dst.height;
+    out_len.?.* = dst.data.len;
+    return dst.data.ptr;
+}
+
+/// pict_decode / pict_decode_v2 / pict_decode_v3 / pict_resize / pict_encode_webp / pict_encode_webp_v2 / pict_encode_avif / pict_encode_png / pict_crop / pict_rotate
 /// が返したバッファを解放する。
 /// pict_decode_v3 の埋め込み ICC バッファ (*out_icc) も同じくこの関数で解放する。
 export fn pict_free_buffer(ptr: [*]u8, len: usize) void {
@@ -407,6 +447,7 @@ test {
     _ = encode;
     _ = resize;
     _ = crop;
+    _ = rotate;
     _ = mem.ring;
     _ = mem.tile;
     _ = platform;
@@ -416,6 +457,9 @@ test {
 // ─────────────────────────────────────────────────────────────────────────────
 // Phase 6 FFI ユニットテスト
 // ─────────────────────────────────────────────────────────────────────────────
+
+// pict_jpeg_orientation の extern 宣言 (src/c/jpeg_decode.c)
+extern fn pict_jpeg_orientation(data: [*]const u8, len: c_ulong) u8;
 
 // テスト内で PNG を生成するための extern 宣言 (src/c/png_decode.c を参照)
 extern fn pict_png_encode(
@@ -751,4 +795,69 @@ test "pict_crop: 範囲外で null 返却、out_len 不変 (Category B)" {
     const ptr = pict_crop(src[0..].ptr, 4, 4, 4, 3, 0, 2, 2, &out_len);
     try std.testing.expectEqual(@as(?[*]u8, null), ptr);
     try std.testing.expectEqual(@as(usize, 0xDEAD), out_len);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// pict_jpeg_orientation テスト
+// ─────────────────────────────────────────────────────────────────────────────
+
+test "pict_jpeg_orientation: 非 JPEG データは 1 を返す" {
+    const bad = [_]u8{ 0x00, 0x01, 0x02, 0x03 };
+    try std.testing.expectEqual(@as(u8, 1), pict_jpeg_orientation(bad[0..].ptr, bad.len));
+}
+
+test "pict_jpeg_orientation: orientation=1 fixture → 1 を返す" {
+    const bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, "test/fixtures/jpeg_orientation_1.jpg", 4 * 1024 * 1024);
+    defer std.testing.allocator.free(bytes);
+    try std.testing.expectEqual(@as(u8, 1), pict_jpeg_orientation(bytes.ptr, bytes.len));
+}
+
+test "pict_jpeg_orientation: orientation=6 fixture → 6 を返す" {
+    const bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, "test/fixtures/jpeg_orientation_6.jpg", 4 * 1024 * 1024);
+    defer std.testing.allocator.free(bytes);
+    try std.testing.expectEqual(@as(u8, 6), pict_jpeg_orientation(bytes.ptr, bytes.len));
+}
+
+test "pict_jpeg_orientation: orientation=8 fixture → 8 を返す" {
+    const bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, "test/fixtures/jpeg_orientation_8.jpg", 4 * 1024 * 1024);
+    defer std.testing.allocator.free(bytes);
+    try std.testing.expectEqual(@as(u8, 8), pict_jpeg_orientation(bytes.ptr, bytes.len));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// pict_rotate テスト
+// ─────────────────────────────────────────────────────────────────────────────
+
+test "pict_rotate: orientation=6 で幅高さが交換される (成功系)" {
+    const W: u32 = 4;
+    const H: u32 = 6;
+    const CH: u8 = 3;
+    var src = [_]u8{128} ** (W * H * CH);
+    var out_w: u32 = 0;
+    var out_h: u32 = 0;
+    var out_len: usize = 0;
+    const ptr = pict_rotate(src[0..].ptr, W, H, CH, 6, &out_w, &out_h, &out_len) orelse
+        return error.RotateFailed;
+    defer pict_free_buffer(ptr, out_len);
+
+    try std.testing.expectEqual(H, out_w);  // orientation 5-8: 幅高さ交換
+    try std.testing.expectEqual(W, out_h);
+    try std.testing.expectEqual(@as(usize, H) * W * CH, out_len);
+}
+
+test "pict_rotate: orientation=1 は null を返す" {
+    var src = [_]u8{128} ** (4 * 4 * 3);
+    var out_w: u32 = 0;
+    var out_h: u32 = 0;
+    var out_len: usize = 0;
+    const ptr = pict_rotate(src[0..].ptr, 4, 4, 3, 1, &out_w, &out_h, &out_len);
+    try std.testing.expectEqual(@as(?[*]u8, null), ptr);
+}
+
+test "pict_rotate: null 入力で null 返却 (Category A)" {
+    var out_w: u32 = 0;
+    var out_h: u32 = 0;
+    var out_len: usize = 0;
+    const ptr = pict_rotate(@as([*c]const u8, null), 4, 4, 3, 6, &out_w, &out_h, &out_len);
+    try std.testing.expectEqual(@as(?[*]u8, null), ptr);
 }

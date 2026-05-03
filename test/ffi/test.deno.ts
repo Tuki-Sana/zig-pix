@@ -9,6 +9,9 @@
  */
 
 import { decode, resize, encodeWebP, encodeAvif, encodePng, crop } from "../../js/src/index.deno.ts";
+import { join, dirname, fromFileUrl } from "jsr:@std/path";
+
+const __dirname = dirname(fromFileUrl(import.meta.url));
 
 // ── Hardcoded 1×1 RGBA PNG (70 bytes, CRC 検証済み, zero external deps) ──────
 // R=255, G=0, B=0, A=255 の単色 1×1 ピクセル
@@ -183,8 +186,26 @@ function fail(label: string, reason: string): void {
   }
 }
 
+// ── Case J: decode with EXIF orientation=6 ───────────────────────────────────
+// decode() must auto-rotate: orientation=6 (90°CW) swaps width and height.
+{
+  try {
+    const fixturePath = join(__dirname, "../../test/fixtures/jpeg_orientation_6.jpg");
+    const jpegBytes = Deno.readFileSync(fixturePath);
+    const img = decode(jpegBytes);
+    // Source JPEG is 403×302; orientation=6 (90°CW) → decoded should be 302×403
+    if (img.width !== 302 || img.height !== 403) {
+      fail("J: decode EXIF orientation=6", `expected 302x403, got ${img.width}x${img.height}`);
+    } else {
+      pass(`J: decode EXIF orientation=6 — ${img.width}x${img.height} (wh swapped correctly)`);
+    }
+  } catch (e) {
+    fail("J: decode EXIF orientation=6", e instanceof Error ? e.message : String(e));
+  }
+}
+
 // ── Summary ───────────────────────────────────────────────────────────────────
-const TOTAL = 8; // A, B, C, E, G×2, H, I
+const TOTAL = 9; // A, B, C, E, G×2, H, I, J
 if (failed > 0) {
   console.error(`\n${failed} / ${TOTAL} test(s) FAILED.`);
   Deno.exit(1);

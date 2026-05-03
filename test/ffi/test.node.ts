@@ -79,6 +79,16 @@ const pict_crop = lib.func(
   "uint8 *pict_crop(const uint8 *pixels, uint32 src_w, uint32 src_h, uint8 channels, uint32 left, uint32 top, uint32 crop_w, uint32 crop_h, uint64 *out_len)"
 );
 
+// pict_jpeg_orientation(data, len) -> uint8
+const pict_jpeg_orientation = lib.func(
+  "uint8 pict_jpeg_orientation(const uint8 *data, uint64 len)"
+);
+
+// pict_rotate(pixels, src_w, src_h, channels, orientation, out_w, out_h, out_len) -> uint8 * | null
+const pict_rotate = lib.func(
+  "uint8 *pict_rotate(const uint8 *pixels, uint32 src_w, uint32 src_h, uint8 channels, uint8 orientation, uint32 *out_w, uint32 *out_h, uint64 *out_len)"
+);
+
 // pict_free_buffer(ptr, len) -> void
 const pict_free_buffer = lib.func(
   "void pict_free_buffer(uint8 *ptr, uint64 len)"
@@ -390,11 +400,59 @@ try {
       pict_free_buffer(result, outLen[0]);
     }
   }
+
+  // ── Case J: pict_jpeg_orientation + pict_rotate ──────────────────────────
+  // Decode orientation=6 JPEG, rotate, verify width/height are swapped.
+  {
+    const fixturePath = join(__dirname, "../../test/fixtures/jpeg_orientation_6.jpg");
+    let jpegBytes: Buffer;
+    try {
+      jpegBytes = readFileSync(fixturePath);
+    } catch {
+      fail("J: pict_jpeg_orientation+rotate", `missing fixture ${fixturePath}`);
+      jpegBytes = Buffer.alloc(0);
+    }
+    if (jpegBytes.length > 0) {
+      const orientation: number = pict_jpeg_orientation(jpegBytes, BigInt(jpegBytes.length));
+      if (orientation !== 6) {
+        fail("J: pict_jpeg_orientation", `expected orientation=6, got ${orientation}`);
+      } else {
+        const outW   = new Uint32Array(1);
+        const outH   = new Uint32Array(1);
+        const outCh  = new Uint8Array(1);
+        const outLen = new BigUint64Array(1);
+        const pixResult = pict_decode_v2(jpegBytes, BigInt(jpegBytes.length), outW, outH, outCh, outLen);
+        if (pixResult === null) {
+          fail("J: pict_rotate", "pict_decode_v2 returned null");
+        } else {
+          const srcW = outW[0];
+          const srcH = outH[0];
+          const ch   = outCh[0];
+          const rotOutW   = new Uint32Array(1);
+          const rotOutH   = new Uint32Array(1);
+          const rotOutLen = new BigUint64Array(1);
+          const rotResult = pict_rotate(pixResult, srcW, srcH, ch, 6, rotOutW, rotOutH, rotOutLen);
+          pict_free_buffer(pixResult, outLen[0]);
+          if (rotResult === null) {
+            fail("J: pict_rotate", "returned null for orientation=6");
+          } else {
+            const ok = rotOutW[0] === srcH && rotOutH[0] === srcW;
+            pict_free_buffer(rotResult, rotOutLen[0]);
+            if (!ok) {
+              fail("J: pict_rotate", `expected ${srcH}x${srcW}, got ${rotOutW[0]}x${rotOutH[0]}`);
+            } else {
+              pass(`J: pict_jpeg_orientation+rotate — orientation=${orientation}, ${srcW}x${srcH}→${rotOutW[0]}x${rotOutH[0]}`);
+            }
+          }
+        }
+      }
+    }
+  }
 } finally {
   lib?.unload();
 }
 
-const TOTAL = 10;
+const TOTAL = 11;
 if (failed > 0) {
   console.error(`\n${failed} / ${TOTAL} test(s) FAILED.`);
   process.exit(1);

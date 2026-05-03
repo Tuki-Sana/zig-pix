@@ -164,6 +164,26 @@ const _lib = Deno.dlopen(resolveLibPath(), {
     ],
     result: "pointer",
   },
+  pict_jpeg_orientation: {
+    parameters: [
+      "pointer", // const uint8 *data
+      "u64",     // uint64 len
+    ],
+    result: "u8",
+  },
+  pict_rotate: {
+    parameters: [
+      "pointer", // const uint8 *pixels
+      "u32",     // uint32 src_w
+      "u32",     // uint32 src_h
+      "u8",      // uint8 channels
+      "u8",      // uint8 orientation
+      "pointer", // uint32 *out_w
+      "pointer", // uint32 *out_h
+      "pointer", // uint64 *out_len
+    ],
+    result: "pointer",
+  },
   pict_free_buffer: {
     parameters: [
       "pointer", // uint8 *ptr
@@ -273,7 +293,7 @@ export function decode(input: Uint8Array): ImageBuffer {
   const iccPtrSlot = new BigUint64Array(1);
   const iccLenBuf  = new BigUint64Array(1);
 
-  const ptr = _lib.symbols.pict_decode_v3(
+  const pixPtr = _lib.symbols.pict_decode_v3(
     Deno.UnsafePointer.of(input),
     BigInt(input.byteLength),
     Deno.UnsafePointer.of(outWBuf),
@@ -284,16 +304,47 @@ export function decode(input: Uint8Array): ImageBuffer {
     Deno.UnsafePointer.of(iccLenBuf),
   );
 
-  if (ptr === null) {
+  if (pixPtr === null) {
     throw new Error("zenpix: decode failed (unsupported format or corrupt data)");
   }
 
-  const len = readU64(outLenBuf);
+  const orientation: number = _lib.symbols.pict_jpeg_orientation(
+    Deno.UnsafePointer.of(input),
+    BigInt(input.byteLength),
+  );
+
+  let finalPtr: Deno.PointerValue = pixPtr;
+  let finalLen = readU64(outLenBuf);
+  let finalW   = readU32(outWBuf);
+  let finalH   = readU32(outHBuf);
+  const channels = outChBuf[0];
+
+  if (orientation !== 1) {
+    const rotOutWBuf   = new Uint8Array(4);
+    const rotOutHBuf   = new Uint8Array(4);
+    const rotOutLenBuf = new Uint8Array(8);
+    const rotPtr = _lib.symbols.pict_rotate(
+      pixPtr,
+      finalW, finalH, channels,
+      orientation,
+      Deno.UnsafePointer.of(rotOutWBuf),
+      Deno.UnsafePointer.of(rotOutHBuf),
+      Deno.UnsafePointer.of(rotOutLenBuf),
+    );
+    if (rotPtr !== null) {
+      _lib.symbols.pict_free_buffer(pixPtr, finalLen);
+      finalPtr = rotPtr;
+      finalLen = readU64(rotOutLenBuf);
+      finalW   = readU32(rotOutWBuf);
+      finalH   = readU32(rotOutHBuf);
+    }
+  }
+
   const out: ImageBuffer = {
-    data:     copyAndFree(ptr, len),
-    width:    readU32(outWBuf),
-    height:   readU32(outHBuf),
-    channels: outChBuf[0],
+    data:     copyAndFree(finalPtr, finalLen),
+    width:    finalW,
+    height:   finalH,
+    channels,
   };
 
   const iccBits = iccPtrSlot[0];
