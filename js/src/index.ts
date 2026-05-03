@@ -200,7 +200,8 @@ export interface CropOptions {
  * HEIC/HEIF, animated WebP, and other formats are not supported.
  * When the file contains an embedded ICC profile, it is copied into `icc`
  * (same memory contract as `data`: native memory is freed before return).
- * @throws {Error} if the input cannot be decoded
+ * JPEG EXIF Orientation (2–8) is applied automatically.
+ * @throws {Error} if the input cannot be decoded, or if EXIF rotation fails (OOM)
  */
 export function decode(input: Buffer | Uint8Array): ImageBuffer {
   const buf = Buffer.isBuffer(input) ? input : Buffer.from(input);
@@ -229,13 +230,17 @@ export function decode(input: Buffer | Uint8Array): ImageBuffer {
     const rotOutH   = new Uint32Array(1);
     const rotOutLen = new BigUint64Array(1);
     const rotPtr = _rotate(pixPtr, outW[0], outH[0], outCh[0], orientation, rotOutW, rotOutH, rotOutLen);
-    if (rotPtr !== null) {
+    if (rotPtr === null) {
       _free(pixPtr, outLen[0]);
-      finalPtr = rotPtr;
-      finalLen = rotOutLen[0];
-      finalW = rotOutW[0];
-      finalH = rotOutH[0];
+      const iccNative = iccPtrSlot[0];
+      if (iccNative != null && iccLen[0] > 0n) _free(iccNative, iccLen[0]);
+      throw new Error("zenpix: EXIF rotation failed (out of memory)");
     }
+    _free(pixPtr, outLen[0]);
+    finalPtr = rotPtr;
+    finalLen = rotOutLen[0];
+    finalW = rotOutW[0];
+    finalH = rotOutH[0];
   }
 
   const out: ImageBuffer = {
