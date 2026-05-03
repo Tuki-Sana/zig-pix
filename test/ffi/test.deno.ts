@@ -8,7 +8,10 @@
  *   deno run --allow-read --allow-ffi --allow-env test/ffi/test.deno.ts
  */
 
-import { decode, resize, encodeWebP, encodeAvif } from "../../js/src/index.deno.ts";
+import { decode, resize, encodeWebP, encodeAvif, encodePng, crop } from "../../js/src/index.deno.ts";
+import { join, dirname, fromFileUrl } from "jsr:@std/path";
+
+const __dirname = dirname(fromFileUrl(import.meta.url));
 
 // ── Hardcoded 1×1 RGBA PNG (70 bytes, CRC 検証済み, zero external deps) ──────
 // R=255, G=0, B=0, A=255 の単色 1×1 ピクセル
@@ -142,8 +145,67 @@ function fail(label: string, reason: string): void {
   }
 }
 
+// ── Case H: encodePng ─────────────────────────────────────────────────────────
+// Encode a 4×4 RGB image as PNG; verify PNG magic bytes.
+{
+  try {
+    const raw = new Uint8Array(4 * 4 * 3).fill(128);
+    const img = { data: raw, width: 4, height: 4, channels: 3 };
+    const png = encodePng(img, { compression: 6 });
+    const isPng =
+      png[0] === 0x89 &&
+      png[1] === 0x50 && // 'P'
+      png[2] === 0x4E && // 'N'
+      png[3] === 0x47;   // 'G'
+    if (!isPng) {
+      const hex = Array.from(png.slice(0, 4)).map(b => b.toString(16).padStart(2, "0")).join(" ");
+      fail("H: encodePng", `PNG magic mismatch: ${hex}`);
+    } else {
+      pass(`H: encodePng — PNG magic verified, out_len=${png.byteLength}`);
+    }
+  } catch (e) {
+    fail("H: encodePng", e instanceof Error ? e.message : String(e));
+  }
+}
+
+// ── Case I: crop ─────────────────────────────────────────────────────────────
+// Crop a 4×4 RGBA image to 2×2; verify dimensions and byte length.
+{
+  try {
+    const raw = new Uint8Array(4 * 4 * 4).fill(128);
+    const img = { data: raw, width: 4, height: 4, channels: 4 };
+    const cropped = crop(img, { left: 1, top: 1, width: 2, height: 2 });
+    const expectedLen = 2 * 2 * 4;
+    if (cropped.width !== 2 || cropped.height !== 2 || cropped.data.byteLength !== expectedLen) {
+      fail("I: crop", `got ${cropped.width}x${cropped.height} len=${cropped.data.byteLength}, expected 2x2 len=${expectedLen}`);
+    } else {
+      pass(`I: crop — 4x4→2x2 RGBA, len=${cropped.data.byteLength}`);
+    }
+  } catch (e) {
+    fail("I: crop", e instanceof Error ? e.message : String(e));
+  }
+}
+
+// ── Case J: decode with EXIF orientation=6 ───────────────────────────────────
+// decode() must auto-rotate: orientation=6 (90°CW) swaps width and height.
+{
+  try {
+    const fixturePath = join(__dirname, "../../test/fixtures/jpeg_orientation_6.jpg");
+    const jpegBytes = Deno.readFileSync(fixturePath);
+    const img = decode(jpegBytes);
+    // Source JPEG is 403×302; orientation=6 (90°CW) → decoded should be 302×403
+    if (img.width !== 302 || img.height !== 403) {
+      fail("J: decode EXIF orientation=6", `expected 302x403, got ${img.width}x${img.height}`);
+    } else {
+      pass(`J: decode EXIF orientation=6 — ${img.width}x${img.height} (wh swapped correctly)`);
+    }
+  } catch (e) {
+    fail("J: decode EXIF orientation=6", e instanceof Error ? e.message : String(e));
+  }
+}
+
 // ── Summary ───────────────────────────────────────────────────────────────────
-const TOTAL = 6; // A, B, C, E, G×2
+const TOTAL = 9; // A, B, C, E, G×2, H, I, J
 if (failed > 0) {
   console.error(`\n${failed} / ${TOTAL} test(s) FAILED.`);
   Deno.exit(1);

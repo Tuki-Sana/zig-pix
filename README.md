@@ -33,7 +33,7 @@ deno add npm:zenpix
 または直接 `npm:` specifier を使用：
 
 ```typescript
-import { decode, resize, encodeWebP, encodeAvif } from "npm:zenpix/deno";
+import { decode, resize, encodeWebP, encodeAvif, encodePng, crop } from "npm:zenpix/deno";
 ```
 
 > Deno での実行時は `--allow-ffi` フラグが必要です。
@@ -47,7 +47,7 @@ import { decode, resize, encodeWebP, encodeAvif } from "npm:zenpix/deno";
 ## 使い方
 
 ```typescript
-import { decode, resize, encodeWebP, encodeAvif } from "zenpix";
+import { decode, resize, encodeWebP, encodeAvif, encodePng, crop } from "zenpix";
 import { readFileSync, writeFileSync } from "fs";
 
 // JPEG / PNG / WebP（静止画）をデコード
@@ -64,6 +64,15 @@ writeFileSync("output.webp", webp);
 // AVIF エンコード（libavif / libaom は静的リンク済み、追加インストール不要）
 const avif = encodeAvif(resized, { quality: 60, speed: 10 });
 if (avif) writeFileSync("output.avif", avif);
+
+// PNG エンコード（ICC プロファイルがあれば iCCP チャンクとして埋め込み）
+const png = encodePng(resized, { compression: 6 });
+writeFileSync("output.png", png);
+
+// crop（サムネイル用矩形切り出し）
+const thumb = crop(resized, { left: 0, top: 0, width: 400, height: 300 });
+const thumbWebP = encodeWebP(thumb, { quality: 85 });
+writeFileSync("thumb.webp", thumbWebP);
 ```
 
 ## API
@@ -71,6 +80,8 @@ if (avif) writeFileSync("output.avif", avif);
 ### `decode(input: Buffer | Uint8Array): ImageBuffer`
 
 JPEG・PNG・静止画 WebP をデコードして生ピクセルデータを返します。内部では埋め込み ICC も取り出せる `pict_decode_v3` を使います。HEIC / HEIF・アニメーション WebP・その他の形式は **未対応**（失敗時は `zenpix: decode failed`）。
+
+**JPEG の EXIF Orientation は自動適用されます。** Orientation 2〜8（水平反転・180° 回転・垂直反転・転置・90° CW・逆転置・90° CCW）はすべて処理され、返される `data` / `width` / `height` が正位置に合わせて変換されます（orientation=1 は追加処理なし）。
 
 ```typescript
 interface ImageBuffer {
@@ -118,6 +129,29 @@ AVIF にエンコードします。以下の場合は `null` を返します：
 interface AvifOptions {
   quality?: number; // 0–100（デフォルト: 60）
   speed?: number;   // 0–10（デフォルト: 6）。10 が最速
+}
+```
+
+### `encodePng(image: ImageBuffer, options?: PngOptions): Buffer | Uint8Array`
+
+PNG にエンコードします。`image.icc` が設定されていれば iCCP チャンクとして埋め込みます。`compression` が 0–9 の範囲外の場合は `Error` を投げます。
+
+```typescript
+interface PngOptions {
+  compression?: number; // zlib 圧縮レベル 0–9（デフォルト: 6）
+}
+```
+
+### `crop(image: ImageBuffer, options: CropOptions): ImageBuffer`
+
+ピクセルデータから矩形領域を切り出します。ICC プロファイルは引き継ぎます。範囲外・ゼロ次元・不正値の場合は `Error` を投げます。
+
+```typescript
+interface CropOptions {
+  left: number;   // 切り出し左端（px, 0 origin）
+  top: number;    // 切り出し上端（px, 0 origin）
+  width: number;  // 切り出し幅（px）
+  height: number; // 切り出し高さ（px）
 }
 ```
 
@@ -314,7 +348,7 @@ bash scripts/mem-peak.sh
 | Cloudflare Pages（WASM） | ✅ `zenpix-wasm` | ✅ `zenpix-wasm` | ✅ `zenpix-wasm` | ✅ `zenpix-wasm`（ネイティブ DLL ではなく WASM） |
 | Cloudflare Workers | ❌（CPU 制限により非対応）| — | — | — |
 
-**npm のバージョン**: ルート **`zenpix`** とネイティブ optional **4 件**（上表の `zenpix-darwin-arm64` / `zenpix-darwin-x64` / `zenpix-linux-x64` / `zenpix-win32-x64`）は **同一 semver で publish** する（**現在の例: 0.3.0**）。`zenpix-win32-x64` は **0.2.0** から同梱。
+**npm のバージョン**: ルート **`zenpix`** とネイティブ optional **4 件**（上表の `zenpix-darwin-arm64` / `zenpix-darwin-x64` / `zenpix-linux-x64` / `zenpix-win32-x64`）は **同一 semver で publish** する（**現在の例: 0.4.0**）。`zenpix-win32-x64` は **0.2.0** から同梱。
 
 **Windows on ARM64（WoA）**: npm の **公式同梱はありません**（`zenpix-win32-arm64` は出さない方針）。**x64 版の Node.js** で動かすか、**`ZENPIX_LIB`** で手元ビルドの `libpict.dll` を指すか、**`zig build lib-windows-arm64 -Davif=static`**（`zig-out/windows-aarch64/`）を参照してください。詳細は **`docs/windows-rollout-plan.md` §3.3**。
 

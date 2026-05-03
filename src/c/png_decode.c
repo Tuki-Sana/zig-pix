@@ -5,7 +5,7 @@
  *   pict_png_decode     — decode PNG bytes → raw RGB/RGBA pixels + optional ICC (iCCP)
  *   pict_png_free       — free pixel buffer from pict_png_decode
  *   pict_png_icc_free   — free ICC buffer from pict_png_decode (malloc)
- *   pict_png_encode     — encode raw RGB/RGBA → PNG bytes (used by tests)
+ *   pict_png_encode     — encode raw RGB/RGBA → PNG bytes (compression, ICC embedding)
  */
 
 #include <stdio.h>   /* libpng may need FILE */
@@ -197,11 +197,13 @@ void pict_png_free(unsigned char *data) { free(data); }
 
 void pict_png_icc_free(unsigned char *icc) { free(icc); }
 
-/* ── Encode helper (used by tests) ─────────────────────────────────────── */
+/* ── Encode: raw RGB/RGBA pixels → PNG bytes ────────────────────────────── */
 
 /*
  * Encode raw RGB/RGBA pixels to PNG in memory.
- * channels must be 3 (RGB) or 4 (RGBA).
+ * channels must be 3 (RGB) or 4 (RGBA); any other value returns -1.
+ * compression: zlib level 0-9 (out-of-range is clamped to 6).
+ * icc / icc_len: optional ICC profile embedded as iCCP chunk (NULL to skip).
  * Returns 0 on success, -1 on error.
  * *out_png allocated with malloc; free with pict_png_free().
  */
@@ -210,9 +212,20 @@ int pict_png_encode(
     unsigned int         width,
     unsigned int         height,
     unsigned int         channels,
+    int                  compression,
+    const unsigned char *icc,
+    size_t               icc_len,
     unsigned char      **out_png,
-    unsigned long       *out_len)
+    size_t              *out_len)
 {
+    if (!pixels || !out_png || !out_len) return -1;
+    if (channels != 3 && channels != 4) return -1;
+    if (width == 0 || height == 0) return -1;
+    /* Overflow-safe row stride check */
+    if (width > (size_t)-1 / channels) return -1;
+
+    if (compression < 0 || compression > 9) compression = 6;
+
     png_structp png_ptr  = NULL;
     png_infop   info_ptr = NULL;
 
@@ -233,6 +246,7 @@ int pict_png_encode(
     }
 
     png_set_write_fn(png_ptr, &ws, png_mem_write, png_mem_flush);
+    png_set_compression_level(png_ptr, compression);
 
     int color_type = (channels == 4) ? PNG_COLOR_TYPE_RGBA : PNG_COLOR_TYPE_RGB;
     png_set_IHDR(png_ptr, info_ptr,
@@ -240,16 +254,21 @@ int pict_png_encode(
         PNG_INTERLACE_NONE,
         PNG_COMPRESSION_TYPE_DEFAULT,
         PNG_FILTER_TYPE_DEFAULT);
+
+    if (icc && icc_len > 0 && icc_len <= (png_uint_32)-1)
+        png_set_iCCP(png_ptr, info_ptr, "ICC", PNG_COMPRESSION_TYPE_DEFAULT,
+                     (png_const_bytep)icc, (png_uint_32)icc_len);
+
     png_write_info(png_ptr, info_ptr);
 
-    unsigned long row_stride = (unsigned long)width * channels;
+    size_t row_stride = (size_t)width * channels;
     for (unsigned int y = 0; y < height; y++)
-        png_write_row(png_ptr, (png_const_bytep)(pixels + (unsigned long)y * row_stride));
+        png_write_row(png_ptr, (png_const_bytep)(pixels + (size_t)y * row_stride));
 
     png_write_end(png_ptr, info_ptr);
     png_destroy_write_struct(&png_ptr, &info_ptr);
 
     *out_png = ws.data;
-    *out_len = ws.len;
+    *out_len = (size_t)ws.len;
     return 0;
 }

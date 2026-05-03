@@ -9,6 +9,8 @@ const std = @import("std");
 pub const decode = @import("pipeline/decode.zig");
 pub const encode = @import("pipeline/encode.zig");
 pub const resize = @import("pipeline/resize.zig");
+pub const crop   = @import("pipeline/crop.zig");
+pub const rotate = @import("pipeline/rotate.zig");
 
 const has_avif = @import("avif_options").has_avif;
 
@@ -323,7 +325,115 @@ export fn pict_encode_avif(
     return p;
 }
 
-/// pict_decode / pict_decode_v2 / pict_decode_v3 / pict_resize / pict_encode_webp / pict_encode_webp_v2 / pict_encode_avif
+/// ピクセルデータを PNG にエンコードする。
+/// compression: zlib 圧縮レベル 0-9（範囲外は C 側で 6 に clamp）。
+/// icc / icc_len: 埋め込み ICC（null または icc_len==0 で省略）。
+/// 成功時: PNG バイト列 (pict_free_buffer(ptr, out_len) で解放)。
+/// 失敗時: null。out_len は変更しない。
+export fn pict_encode_png(
+    pixels: [*c]const u8,
+    width: u32,
+    height: u32,
+    channels: u8,
+    compression: u8,
+    icc: ?*const u8,
+    icc_len: usize,
+    out_len: ?*usize,
+) ?[*]u8 {
+    if (pixels == null or out_len == null or width == 0 or height == 0 or channels == 0) return null;
+    if (channels != 3 and channels != 4) return null;
+    const pixel_size = mul3SizeChecked(width, height, channels) orelse return null;
+
+    const icc_z: ?[]u8 = if (icc != null and icc_len > 0)
+        @constCast(@as([*]const u8, @ptrCast(icc.?))[0..icc_len])
+    else
+        null;
+
+    const img = decode.ImageBuffer{
+        .width     = width,
+        .height    = height,
+        .channels  = channels,
+        .format    = if (channels == 4) .rgba8 else .rgb8,
+        .data      = @constCast(pixels[0..pixel_size]),
+        .icc       = icc_z,
+        .allocator = ffi_alloc,
+    };
+
+    var encoder = encode.pngEncoder();
+    defer encoder.deinit();
+
+    var encoded = encoder.encode(img, .{ .png = .{
+        .compression = compression,
+    } }, ffi_alloc) catch return null;
+
+    if (out_len) |ol| ol.* = encoded.data.len;
+    const ptr = encoded.data.ptr;
+    encoded.data = &[_]u8{};
+    return ptr;
+}
+
+/// ピクセルデータから矩形を切り出す。
+/// 失敗時（null / ゼロ次元 / 範囲外 / OOM）: null。out_len は変更しない。
+export fn pict_crop(
+    pixels: [*c]const u8,
+    src_w: u32,
+    src_h: u32,
+    channels: u8,
+    left: u32,
+    top: u32,
+    crop_w: u32,
+    crop_h: u32,
+    out_len: ?*usize,
+) ?[*]u8 {
+    if (pixels == null or out_len == null) return null;
+    if (src_w == 0 or src_h == 0 or channels == 0) return null;
+    const src_size = mul3SizeChecked(src_w, src_h, channels) orelse return null;
+
+    const dst = crop.crop(pixels[0..src_size], src_w, src_h, channels, left, top, crop_w, crop_h, ffi_alloc) catch return null;
+    out_len.?.* = dst.len;
+    return dst.ptr;
+}
+
+/// ピクセルデータを EXIF Orientation に従って変換する。
+/// orientation=1 または不正値: null を返す（呼び出し元は元バッファをそのまま使う）。
+/// それ以外: 新しいバッファを返す (pict_free_buffer(ptr, out_len) で解放)。
+/// 向き 5-8 は幅高さが交換されるため out_w / out_h を必ず読むこと。
+export fn pict_rotate(
+    pixels: [*c]const u8,
+    src_w: u32,
+    src_h: u32,
+    channels: u8,
+    orientation: u8,
+    out_w: ?*u32,
+    out_h: ?*u32,
+    out_len: ?*usize,
+) ?[*]u8 {
+    if (pixels == null or out_w == null or out_h == null or out_len == null) return null;
+    if (orientation == 1 or orientation > 8) return null;
+    if (src_w == 0 or src_h == 0 or channels == 0) return null;
+    if (channels != 3 and channels != 4) return null;
+
+    const src_size = mul3SizeChecked(src_w, src_h, channels) orelse return null;
+
+    const src_buf = decode.ImageBuffer{
+        .data      = @constCast(pixels[0..src_size]),
+        .width     = src_w,
+        .height    = src_h,
+        .channels  = channels,
+        .format    = if (channels == 4) .rgba8 else .rgb8,
+        .icc       = null,
+        .allocator = ffi_alloc,
+    };
+
+    const dst = rotate.rotate(src_buf, orientation, ffi_alloc) catch return null;
+    // orientation=1 は元ポインタを返すが、ここでは orientation != 1 が保証されている
+    out_w.?.* = dst.width;
+    out_h.?.* = dst.height;
+    out_len.?.* = dst.data.len;
+    return dst.data.ptr;
+}
+
+/// pict_decode / pict_decode_v2 / pict_decode_v3 / pict_resize / pict_encode_webp / pict_encode_webp_v2 / pict_encode_avif / pict_encode_png / pict_crop / pict_rotate
 /// が返したバッファを解放する。
 /// pict_decode_v3 の埋め込み ICC バッファ (*out_icc) も同じくこの関数で解放する。
 export fn pict_free_buffer(ptr: [*]u8, len: usize) void {
@@ -336,6 +446,8 @@ test {
     _ = decode;
     _ = encode;
     _ = resize;
+    _ = crop;
+    _ = rotate;
     _ = mem.ring;
     _ = mem.tile;
     _ = platform;
@@ -346,14 +458,20 @@ test {
 // Phase 6 FFI ユニットテスト
 // ─────────────────────────────────────────────────────────────────────────────
 
-// テスト内で PNG を生成するための extern 宣言 (decode.zig と同じシンボルを参照)
+// pict_jpeg_orientation の extern 宣言 (src/c/jpeg_decode.c)
+extern fn pict_jpeg_orientation(data: [*]const u8, len: c_ulong) u8;
+
+// テスト内で PNG を生成するための extern 宣言 (src/c/png_decode.c を参照)
 extern fn pict_png_encode(
     pixels: [*]const u8,
     width: c_uint,
     height: c_uint,
     channels: c_uint,
-    out_png: *?[*]u8,
-    out_len: *c_ulong,
+    compression: c_int,
+    icc: ?[*]const u8,
+    icc_len: usize,
+    out_png: *[*]u8,
+    out_len: *usize,
 ) c_int;
 extern fn pict_png_free(data: [*]u8) void;
 
@@ -416,13 +534,13 @@ test "pict_decode_v2: PNG デコード成功 + out_len == w*h*ch (成功系)" {
     const CH: c_uint = 4;
     var pixels = [_]u8{ 100, 150, 200, 255 } ** (W * H);
 
-    var png_ptr: ?[*]u8 = null;
-    var png_len: c_ulong = 0;
-    const rc = pict_png_encode(&pixels, W, H, CH, &png_ptr, &png_len);
+    var png_raw: [*]u8 = undefined;
+    var png_len: usize = 0;
+    const rc = pict_png_encode(&pixels, W, H, CH, 6, null, 0, &png_raw, &png_len);
     try std.testing.expectEqual(@as(c_int, 0), rc); // fail fast if encode fails
-    defer pict_png_free(png_ptr.?);
+    defer pict_png_free(png_raw);
 
-    const png_slice = png_ptr.?[0..png_len];
+    const png_slice = png_raw[0..png_len];
     var out_w: u32 = 0;
     var out_h: u32 = 0;
     var out_ch: u8 = 0;
@@ -487,13 +605,13 @@ test "pict_decode_v3: ICC 不要のとき out_icc は null のまま" {
     const CH: c_uint = 3;
     var pixels = [_]u8{ 10, 20, 30 } ** (W * H);
 
-    var png_ptr: ?[*]u8 = null;
-    var png_len: c_ulong = 0;
-    const rc = pict_png_encode(&pixels, W, H, CH, &png_ptr, &png_len);
+    var png_raw: [*]u8 = undefined;
+    var png_len: usize = 0;
+    const rc = pict_png_encode(&pixels, W, H, CH, 6, null, 0, &png_raw, &png_len);
     try std.testing.expectEqual(@as(c_int, 0), rc);
-    defer pict_png_free(png_ptr.?);
+    defer pict_png_free(png_raw);
 
-    const png_slice = png_ptr.?[0..png_len];
+    const png_slice = png_raw[0..png_len];
     var out_w: u32 = 0;
     var out_h: u32 = 0;
     var out_ch: u8 = 0;
@@ -584,11 +702,162 @@ test "pict_decode_v2: 不正データで null 返却、out_len 不変 (Category 
     try std.testing.expectEqual(@as(usize, 0xDEAD), out_len);
 }
 
+test "pict_encode_png: RGBA 4x4 を PNG にエンコード (成功系)" {
+    const W: u32 = 4;
+    const H: u32 = 4;
+    const CH: u8 = 4;
+    var src = [_]u8{ 100, 150, 200, 255 } ** (W * H);
+    var out_len: usize = 0;
+    const ptr = pict_encode_png(src[0..].ptr, W, H, CH, 6, null, 0, &out_len) orelse
+        return error.EncodeFailed;
+    defer pict_free_buffer(ptr, out_len);
+
+    try std.testing.expect(out_len > 8);
+    // PNG マジック
+    try std.testing.expectEqual(@as(u8, 0x89), ptr[0]);
+    try std.testing.expectEqual(@as(u8, 'P'), ptr[1]);
+    try std.testing.expectEqual(@as(u8, 'N'), ptr[2]);
+    try std.testing.expectEqual(@as(u8, 'G'), ptr[3]);
+}
+
+test "pict_encode_png: out_len=null は null を返す (Category A)" {
+    var src = [_]u8{128} ** (4 * 4 * 3);
+    const ptr = pict_encode_png(src[0..].ptr, 4, 4, 3, 6, null, 0, null);
+    try std.testing.expectEqual(@as(?[*]u8, null), ptr);
+}
+
+test "pict_encode_png: null 入力で null 返却、out_len 不変 (Category B)" {
+    var out_len: usize = 0xDEAD;
+    const ptr = pict_encode_png(@as([*c]const u8, null), 4, 4, 3, 6, null, 0, &out_len);
+    try std.testing.expectEqual(@as(?[*]u8, null), ptr);
+    try std.testing.expectEqual(@as(usize, 0xDEAD), out_len);
+}
+
+test "pict_encode_png: channels=2 は null を返す" {
+    var src = [_]u8{0} ** (4 * 4 * 2);
+    var out_len: usize = 0;
+    const ptr = pict_encode_png(src[0..].ptr, 4, 4, 2, 6, null, 0, &out_len);
+    try std.testing.expectEqual(@as(?[*]u8, null), ptr);
+}
+
 test "pict_decode: 不正データは null を返す" {
     const bad = [_]u8{ 0x00, 0x01, 0x02, 0x03, 0x04 };
     var out_w: u32 = 0;
     var out_h: u32 = 0;
     var out_ch: u8 = 0;
     const ptr = pict_decode(bad[0..].ptr, bad.len, &out_w, &out_h, &out_ch);
+    try std.testing.expectEqual(@as(?[*]u8, null), ptr);
+}
+
+test "pict_crop: 4x4 RGBA から 2x2 を切り出す (成功系)" {
+    const W: u32 = 4;
+    const H: u32 = 4;
+    const CH: u8 = 4;
+    var src = [_]u8{0} ** (W * H * CH);
+    // ピクセル (row, col, 0, 255)
+    for (0..H) |r| {
+        for (0..W) |c| {
+            const off = (r * W + c) * CH;
+            src[off + 0] = @intCast(r * 10);
+            src[off + 1] = @intCast(c * 10);
+            src[off + 2] = 0;
+            src[off + 3] = 255;
+        }
+    }
+    var out_len: usize = 0;
+    const ptr = pict_crop(src[0..].ptr, W, H, CH, 1, 1, 2, 2, &out_len) orelse
+        return error.CropFailed;
+    defer pict_free_buffer(ptr, out_len);
+
+    try std.testing.expectEqual(@as(usize, 2 * 2 * CH), out_len);
+    // (1,1): R=10, G=10
+    try std.testing.expectEqual(@as(u8, 10), ptr[0]);
+    try std.testing.expectEqual(@as(u8, 10), ptr[1]);
+}
+
+test "pict_crop: out_len=null は null を返す (Category A)" {
+    var src = [_]u8{0} ** (4 * 4 * 4);
+    const ptr = pict_crop(src[0..].ptr, 4, 4, 4, 0, 0, 2, 2, null);
+    try std.testing.expectEqual(@as(?[*]u8, null), ptr);
+}
+
+test "pict_crop: null 入力で null 返却、out_len 不変 (Category B)" {
+    var out_len: usize = 0xDEAD;
+    const ptr = pict_crop(@as([*c]const u8, null), 4, 4, 4, 0, 0, 2, 2, &out_len);
+    try std.testing.expectEqual(@as(?[*]u8, null), ptr);
+    try std.testing.expectEqual(@as(usize, 0xDEAD), out_len);
+}
+
+test "pict_crop: 範囲外で null 返却、out_len 不変 (Category B)" {
+    var src = [_]u8{0} ** (4 * 4 * 4);
+    var out_len: usize = 0xDEAD;
+    // left=3, crop_w=2 → 3+2=5 > 4
+    const ptr = pict_crop(src[0..].ptr, 4, 4, 4, 3, 0, 2, 2, &out_len);
+    try std.testing.expectEqual(@as(?[*]u8, null), ptr);
+    try std.testing.expectEqual(@as(usize, 0xDEAD), out_len);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// pict_jpeg_orientation テスト
+// ─────────────────────────────────────────────────────────────────────────────
+
+test "pict_jpeg_orientation: 非 JPEG データは 1 を返す" {
+    const bad = [_]u8{ 0x00, 0x01, 0x02, 0x03 };
+    try std.testing.expectEqual(@as(u8, 1), pict_jpeg_orientation(bad[0..].ptr, bad.len));
+}
+
+test "pict_jpeg_orientation: orientation=1 fixture → 1 を返す" {
+    const bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, "test/fixtures/jpeg_orientation_1.jpg", 4 * 1024 * 1024);
+    defer std.testing.allocator.free(bytes);
+    try std.testing.expectEqual(@as(u8, 1), pict_jpeg_orientation(bytes.ptr, bytes.len));
+}
+
+test "pict_jpeg_orientation: orientation=6 fixture → 6 を返す" {
+    const bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, "test/fixtures/jpeg_orientation_6.jpg", 4 * 1024 * 1024);
+    defer std.testing.allocator.free(bytes);
+    try std.testing.expectEqual(@as(u8, 6), pict_jpeg_orientation(bytes.ptr, bytes.len));
+}
+
+test "pict_jpeg_orientation: orientation=8 fixture → 8 を返す" {
+    const bytes = try std.fs.cwd().readFileAlloc(std.testing.allocator, "test/fixtures/jpeg_orientation_8.jpg", 4 * 1024 * 1024);
+    defer std.testing.allocator.free(bytes);
+    try std.testing.expectEqual(@as(u8, 8), pict_jpeg_orientation(bytes.ptr, bytes.len));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// pict_rotate テスト
+// ─────────────────────────────────────────────────────────────────────────────
+
+test "pict_rotate: orientation=6 で幅高さが交換される (成功系)" {
+    const W: u32 = 4;
+    const H: u32 = 6;
+    const CH: u8 = 3;
+    var src = [_]u8{128} ** (W * H * CH);
+    var out_w: u32 = 0;
+    var out_h: u32 = 0;
+    var out_len: usize = 0;
+    const ptr = pict_rotate(src[0..].ptr, W, H, CH, 6, &out_w, &out_h, &out_len) orelse
+        return error.RotateFailed;
+    defer pict_free_buffer(ptr, out_len);
+
+    try std.testing.expectEqual(H, out_w);  // orientation 5-8: 幅高さ交換
+    try std.testing.expectEqual(W, out_h);
+    try std.testing.expectEqual(@as(usize, H) * W * CH, out_len);
+}
+
+test "pict_rotate: orientation=1 は null を返す" {
+    var src = [_]u8{128} ** (4 * 4 * 3);
+    var out_w: u32 = 0;
+    var out_h: u32 = 0;
+    var out_len: usize = 0;
+    const ptr = pict_rotate(src[0..].ptr, 4, 4, 3, 1, &out_w, &out_h, &out_len);
+    try std.testing.expectEqual(@as(?[*]u8, null), ptr);
+}
+
+test "pict_rotate: null 入力で null 返却 (Category A)" {
+    var out_w: u32 = 0;
+    var out_h: u32 = 0;
+    var out_len: usize = 0;
+    const ptr = pict_rotate(@as([*c]const u8, null), 4, 4, 3, 6, &out_w, &out_h, &out_len);
     try std.testing.expectEqual(@as(?[*]u8, null), ptr);
 }

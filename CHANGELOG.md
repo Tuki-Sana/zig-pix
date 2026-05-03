@@ -7,6 +7,18 @@
 
 （次パッチ以降の差分をここに書く）
 
+## [0.4.0] - 2026-05-04
+
+### 追加
+
+- **`encodePng(img, options?)`**: PNG エンコード（`compression` 0–9、デフォルト 6）。`pict_encode_png` FFI 経由。ICC プロファイルがある場合は `iCCP` チャンクとして埋め込む。
+- **`crop(img, rect)`**: ピクセルコピーによるクロップ（`left` / `top` / `width` / `height`）。チャンネル数・ICC を引き継ぐ。`pict_crop` FFI 経由。
+- **EXIF auto-rotation**: `decode()` が JPEG の EXIF Orientation（1〜8）を自動適用。`pict_jpeg_orientation` でバイト列から orientation を取得し、`pict_rotate` で回転・反転してから返す（orientation=1 は追加処理なし）。
+
+### 変更
+
+- **OOM エラー**: `pict_rotate` が null を返した場合（メモリ不足）、ピクセルバッファおよび ICC バッファを解放してから `"zenpix: EXIF rotation failed (out of memory)"` をスロー（旧来は誤った向きのまま返していた）。
+
 ## [0.3.0] - 2026-05-01
 
 ### 変更

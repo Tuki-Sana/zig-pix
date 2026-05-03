@@ -58,7 +58,8 @@
     "packageJson": {
       "dependencies": [
         "npm:@types/node@^25.6.0",
-        "npm:koffi@^2.9.0",
+        "npm:koffi@^2.16.0",
+        "npm:sharp@~0.34.5",
         "npm:tsx@^4.19.0",
         "npm:typescript@^5.8.0"
       ]

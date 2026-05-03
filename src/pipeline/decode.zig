@@ -233,8 +233,11 @@ extern fn pict_png_encode(
     width: c_uint,
     height: c_uint,
     channels: c_uint,
-    out_png: *?[*]u8,
-    out_len: *c_ulong,
+    compression: c_int,
+    icc: ?[*]const u8,
+    icc_len: usize,
+    out_png: *[*]u8,
+    out_len: *usize,
 ) c_int;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -691,13 +694,13 @@ test "PngDecoder: decode RGB image" {
     const H = 4;
     var pixels = [_]u8{200} ** (W * H * 3); // 4×4 グレー RGB
 
-    var png_ptr: ?[*]u8 = null;
-    var png_len: c_ulong = 0;
-    const enc = pict_png_encode(@as([*]const u8, &pixels), W, H, 3, &png_ptr, &png_len);
+    var png_raw: [*]u8 = undefined;
+    var png_len: usize = 0;
+    const enc = pict_png_encode(@as([*]const u8, &pixels), W, H, 3, 6, null, 0, &png_raw, &png_len);
     try std.testing.expectEqual(@as(c_int, 0), enc);
-    defer if (png_ptr) |p| pict_png_free(p);
+    defer pict_png_free(png_raw);
 
-    const png_slice = png_ptr.?[0..png_len];
+    const png_slice = png_raw[0..png_len];
 
     var dec = pngDecoder();
     defer dec.deinit();
@@ -718,13 +721,13 @@ test "PngDecoder: decode RGBA image" {
     const H = 4;
     var pixels = [_]u8{ 100, 150, 200, 255 } ** (W * H); // 半透明ブルー RGBA
 
-    var png_ptr: ?[*]u8 = null;
-    var png_len: c_ulong = 0;
-    const enc = pict_png_encode(@as([*]const u8, &pixels), W, H, 4, &png_ptr, &png_len);
+    var png_raw: [*]u8 = undefined;
+    var png_len: usize = 0;
+    const enc = pict_png_encode(@as([*]const u8, &pixels), W, H, 4, 6, null, 0, &png_raw, &png_len);
     try std.testing.expectEqual(@as(c_int, 0), enc);
-    defer if (png_ptr) |p| pict_png_free(p);
+    defer pict_png_free(png_raw);
 
-    const png_slice = png_ptr.?[0..png_len];
+    const png_slice = png_raw[0..png_len];
 
     var dec = pngDecoder();
     defer dec.deinit();
@@ -745,13 +748,13 @@ test "PngDecoder: detectFormat and decode consistency" {
     const H = 2;
     var pixels = [_]u8{ 0, 255, 0 } ** (W * H); // 緑 RGB
 
-    var png_ptr: ?[*]u8 = null;
-    var png_len: c_ulong = 0;
-    const enc = pict_png_encode(@as([*]const u8, &pixels), W, H, 3, &png_ptr, &png_len);
+    var png_raw: [*]u8 = undefined;
+    var png_len: usize = 0;
+    const enc = pict_png_encode(@as([*]const u8, &pixels), W, H, 3, 6, null, 0, &png_raw, &png_len);
     try std.testing.expectEqual(@as(c_int, 0), enc);
-    defer if (png_ptr) |p| pict_png_free(p);
+    defer pict_png_free(png_raw);
 
-    const png_slice = png_ptr.?[0..png_len];
+    const png_slice = png_raw[0..png_len];
     try std.testing.expectEqual(Format.png, detectFormat(png_slice));
 
     var dec = pngDecoder();

@@ -105,6 +105,22 @@ const _encode_avif = _lib.func(
   "uint8 *pict_encode_avif(const uint8 *pixels, uint32 width, uint32 height, uint8 channels, uint8 quality, uint8 speed, uint64 *out_len)"
 );
 
+const _encode_png = _lib.func(
+  "uint8 *pict_encode_png(const uint8 *pixels, uint32 width, uint32 height, uint8 channels, uint8 compression, uint8 *icc, uint64 icc_len, uint64 *out_len)"
+);
+
+const _crop = _lib.func(
+  "uint8 *pict_crop(const uint8 *pixels, uint32 src_w, uint32 src_h, uint8 channels, uint32 left, uint32 top, uint32 crop_w, uint32 crop_h, uint64 *out_len)"
+);
+
+const _jpeg_orientation = _lib.func(
+  "uint8 pict_jpeg_orientation(const uint8 *data, uint64 len)"
+);
+
+const _rotate = _lib.func(
+  "uint8 *pict_rotate(const uint8 *pixels, uint32 src_w, uint32 src_h, uint8 channels, uint8 orientation, uint32 *out_w, uint32 *out_h, uint64 *out_len)"
+);
+
 const _free = _lib.func("void pict_free_buffer(uint8 *ptr, uint64 len)");
 
 // ── Internal helper ───────────────────────────────────────────────────────────
@@ -165,6 +181,18 @@ export interface AvifOptions {
   speed?: number;
 }
 
+export interface PngOptions {
+  /** zlib compression level 0–9 (default: 6) */
+  compression?: number;
+}
+
+export interface CropOptions {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
@@ -172,7 +200,8 @@ export interface AvifOptions {
  * HEIC/HEIF, animated WebP, and other formats are not supported.
  * When the file contains an embedded ICC profile, it is copied into `icc`
  * (same memory contract as `data`: native memory is freed before return).
- * @throws {Error} if the input cannot be decoded
+ * JPEG EXIF Orientation (2–8) is applied automatically.
+ * @throws {Error} if the input cannot be decoded, or if EXIF rotation fails (OOM)
  */
 export function decode(input: Buffer | Uint8Array): ImageBuffer {
   const buf = Buffer.isBuffer(input) ? input : Buffer.from(input);
@@ -184,15 +213,40 @@ export function decode(input: Buffer | Uint8Array): ImageBuffer {
   const iccPtrSlot: unknown[] = [null];
   const iccLen = new BigUint64Array(1);
 
-  const ptr = _decode_v3(buf, BigInt(buf.byteLength), outW, outH, outCh, outLen, iccPtrSlot, iccLen);
-  if (ptr === null) {
+  const pixPtr = _decode_v3(buf, BigInt(buf.byteLength), outW, outH, outCh, outLen, iccPtrSlot, iccLen);
+  if (pixPtr === null) {
     throw new Error("zenpix: decode failed (unsupported format or corrupt data)");
   }
 
+  const orientation: number = _jpeg_orientation(buf, BigInt(buf.byteLength));
+
+  let finalPtr: unknown = pixPtr;
+  let finalLen = outLen[0];
+  let finalW = outW[0];
+  let finalH = outH[0];
+
+  if (orientation !== 1) {
+    const rotOutW   = new Uint32Array(1);
+    const rotOutH   = new Uint32Array(1);
+    const rotOutLen = new BigUint64Array(1);
+    const rotPtr = _rotate(pixPtr, outW[0], outH[0], outCh[0], orientation, rotOutW, rotOutH, rotOutLen);
+    if (rotPtr === null) {
+      _free(pixPtr, outLen[0]);
+      const iccNative = iccPtrSlot[0];
+      if (iccNative != null && iccLen[0] > 0n) _free(iccNative, iccLen[0]);
+      throw new Error("zenpix: EXIF rotation failed (out of memory)");
+    }
+    _free(pixPtr, outLen[0]);
+    finalPtr = rotPtr;
+    finalLen = rotOutLen[0];
+    finalW = rotOutW[0];
+    finalH = rotOutH[0];
+  }
+
   const out: ImageBuffer = {
-    data: copyAndFree(ptr, outLen[0]),
-    width:    outW[0],
-    height:   outH[0],
+    data: copyAndFree(finalPtr, finalLen),
+    width:    finalW,
+    height:   finalH,
     channels: outCh[0],
   };
 
@@ -293,4 +347,70 @@ export function encodeAvif(image: ImageBuffer, options: AvifOptions = {}): Buffe
   if (ptr === null) return null;
 
   return copyAndFree(ptr, outLen[0]);
+}
+
+/**
+ * Encode pixel data as PNG.
+ * @throws {Error} if compression is not an integer 0–9, or if encoding fails
+ */
+export function encodePng(image: ImageBuffer, options: PngOptions = {}): Buffer {
+  const { compression = 6 } = options;
+
+  if (!Number.isInteger(compression) || compression < 0 || compression > 9) {
+    throw new Error("zenpix: compression must be an integer 0–9");
+  }
+
+  const icc = image.icc;
+  const iccLen = icc !== undefined && icc.byteLength > 0 ? BigInt(icc.byteLength) : 0n;
+  const outLen = new BigUint64Array(1);
+  const ptr = _encode_png(
+    image.data,
+    image.width, image.height, image.channels,
+    compression,
+    icc !== undefined && icc.byteLength > 0 ? icc : null,
+    iccLen,
+    outLen,
+  );
+  if (ptr === null) throw new Error("zenpix: PNG encoding failed");
+
+  return copyAndFree(ptr, outLen[0]);
+}
+
+/**
+ * Crop a rectangular region from pixel data.
+ * ICC profile is carried through to the output.
+ * @throws {Error} if options are invalid or the crop region is out of bounds
+ */
+export function crop(image: ImageBuffer, options: CropOptions): ImageBuffer {
+  const { left, top, width, height } = options;
+
+  for (const [name, val] of [["left", left], ["top", top], ["width", width], ["height", height]] as [string, number][]) {
+    if (!Number.isInteger(val) || val < 0 || val > 0xFFFFFFFF) {
+      throw new Error(`zenpix: crop ${name} must be a non-negative integer ≤ 4294967295`);
+    }
+  }
+  if (width === 0 || height === 0) {
+    throw new Error("zenpix: crop width and height must be > 0");
+  }
+
+  const outLen = new BigUint64Array(1);
+  const ptr = _crop(
+    image.data,
+    image.width, image.height, image.channels,
+    left, top, width, height,
+    outLen,
+  );
+
+  if (ptr === null) throw new Error("zenpix: crop failed (region out of bounds or invalid input)");
+
+  const out: ImageBuffer = {
+    data:     copyAndFree(ptr, outLen[0]),
+    width,
+    height,
+    channels: image.channels,
+  };
+  if (image.icc !== undefined && image.icc.byteLength > 0) {
+    out.icc = Buffer.from(image.icc);
+  }
+  return out;
 }
