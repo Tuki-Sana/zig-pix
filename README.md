@@ -5,12 +5,14 @@
 **npm:** [zenpix](https://www.npmjs.com/package/zenpix)（Node / Bun / Deno・ネイティブ） · [zenpix-wasm](https://www.npmjs.com/package/zenpix-wasm)（ブラウザ向け AVIF エンコード）
 
 Zig 製の高速画像処理ライブラリです。  
-JPEG / PNG / 静止画 WebP をデコードし、Lanczos-3 リサイズを経て WebP / AVIF にエンコードします。  
+JPEG / PNG / 静止画 WebP / **AVIF** / **GIF（先頭フレーム）** をデコードし、Lanczos-3 リサイズを経て WebP / AVIF / PNG にエンコードします。  
 **HEIC / HEIF は非対応。** 必要ならクライアントで JPEG/PNG に変換してから渡してください（HEVC 特許・対応環境の都合でコアのスコープ外）。
 
-- **AVIF エンコード**: 代表ベンチでは speed=10 が Sharp より **wall-clock で短く**、Sharp がマルチスレッドで積み上げる **CPU user 時間より遥かに軽い**（条件は下表・[比較の読み方](#比較の読み方)）
+- **AVIF デコード / エンコード**: libavif / libaom を静的リンク済み。エンコードは代表ベンチで speed=10 が Sharp より **wall-clock で短く**、Sharp がマルチスレッドで積み上げる **CPU user 時間より遥かに軽い**（条件は下表・[比較の読み方](#比較の読み方)）
+- **GIF デコード**: 先頭フレームのみ RGB 出力（stb_image.h 経由）
 - **WebP エンコード**: lossy / lossless 対応
-- **Lanczos-3 リサイズ**: SIMD 最適化（aarch64 NEON / x86_64 SSE2）
+- **Lanczos-3 リサイズ**: SIMD 最適化（aarch64 NEON / x86_64 SSE2）、`fit` モード（stretch / contain / cover）対応
+- **`convert()` パイプライン**: decode → crop → resize → encode を一発実行
 - **Node.js / Bun / Deno 対応**: Node.js・Bun は koffi、Deno は `Deno.dlopen` 経由でネイティブバイナリを呼び出し
 
 ## インストール
@@ -33,7 +35,7 @@ deno add npm:zenpix
 または直接 `npm:` specifier を使用：
 
 ```typescript
-import { decode, resize, encodeWebP, encodeAvif, encodePng, crop } from "npm:zenpix/deno";
+import { decode, resize, encodeWebP, encodeAvif, encodePng, crop, convert } from "npm:zenpix/deno";
 ```
 
 > Deno での実行時は `--allow-ffi` フラグが必要です。
@@ -47,10 +49,10 @@ import { decode, resize, encodeWebP, encodeAvif, encodePng, crop } from "npm:zen
 ## 使い方
 
 ```typescript
-import { decode, resize, encodeWebP, encodeAvif, encodePng, crop } from "zenpix";
+import { decode, resize, encodeWebP, encodeAvif, encodePng, crop, convert } from "zenpix";
 import { readFileSync, writeFileSync } from "fs";
 
-// JPEG / PNG / WebP（静止画）をデコード
+// JPEG / PNG / WebP（静止画）/ AVIF / GIF（先頭フレーム）をデコード
 const input = readFileSync("input.jpg");
 const image = decode(input);
 
@@ -73,13 +75,20 @@ writeFileSync("output.png", png);
 const thumb = crop(resized, { left: 0, top: 0, width: 400, height: 300 });
 const thumbWebP = encodeWebP(thumb, { quality: 85 });
 writeFileSync("thumb.webp", thumbWebP);
+
+// convert()：decode → resize → AVIF を一発実行
+const result = convert(readFileSync("input.png"), {
+  resize: { width: 1920, fit: "contain" },
+  encode: { format: "avif", quality: 60, speed: 10 },
+});
+if (result) writeFileSync("output.avif", result);
 ```
 
 ## API
 
 ### `decode(input: Buffer | Uint8Array): ImageBuffer`
 
-JPEG・PNG・静止画 WebP をデコードして生ピクセルデータを返します。内部では埋め込み ICC も取り出せる `pict_decode_v3` を使います。HEIC / HEIF・アニメーション WebP・その他の形式は **未対応**（失敗時は `zenpix: decode failed`）。
+JPEG・PNG・静止画 WebP・**AVIF**・**GIF（先頭フレームのみ、RGB 出力）** をデコードして生ピクセルデータを返します。HEIC / HEIF・アニメーション WebP・アニメーション GIF（2フレーム目以降）は **未対応**（失敗時は `zenpix: decode failed`）。
 
 **JPEG の EXIF Orientation は自動適用されます。** Orientation 2〜8（水平反転・180° 回転・垂直反転・転置・90° CW・逆転置・90° CCW）はすべて処理され、返される `data` / `width` / `height` が正位置に合わせて変換されます（orientation=1 は追加処理なし）。
 
@@ -102,6 +111,10 @@ interface ResizeOptions {
   width?: number;    // 出力幅（px）
   height?: number;   // 出力高さ（px）
   threads?: number;  // 並列スレッド数（デフォルト: 1）
+  fit?: "stretch" | "contain" | "cover";
+  // "stretch"（デフォルト）: width / height をそのまま使用（従来動作）
+  // "contain": 縦横比を保ちながら width × height の枠内に収める（letterbox）
+  // "cover":   縦横比を保ちながら枠全体を覆う（中央クロップ）
 }
 ```
 
@@ -129,6 +142,7 @@ AVIF にエンコードします。以下の場合は `null` を返します：
 interface AvifOptions {
   quality?: number; // 0–100（デフォルト: 60）
   speed?: number;   // 0–10（デフォルト: 6）。10 が最速
+  threads?: number; // エンコードスレッド数（デフォルト: 1）。バッチ処理時は os.cpus().length を推奨
 }
 ```
 
@@ -153,6 +167,40 @@ interface CropOptions {
   width: number;  // 切り出し幅（px）
   height: number; // 切り出し高さ（px）
 }
+```
+
+### `convert(input: Buffer | Uint8Array, options: ConvertOptions): Buffer | Uint8Array | null`
+
+decode → crop → resize → encode を一発実行するパイプライン関数です。ステップごとに関数を呼ぶ代わりに、一度の呼び出しで変換を完結させられます。
+
+`encode.format` が `"avif"` のときのみ `null` を返す可能性があります（`encodeAvif()` と同じ条件）。それ以外のフォーマットは常にバイト列を返します。
+
+```typescript
+interface ConvertOptions {
+  crop?: CropOptions;    // decode 直後にクロップ（省略可）
+  resize?: ResizeOptions; // クロップ後にリサイズ（省略可）
+  encode: (
+    | { format: "webp"; quality?: number; lossless?: boolean }
+    | { format: "avif"; quality?: number; speed?: number; threads?: number }
+    | { format: "png";  compression?: number }
+  );
+}
+```
+
+```typescript
+// decode → contain リサイズ → AVIF を一発実行
+const avif = convert(input, {
+  resize: { width: 1920, height: 1080, fit: "contain" },
+  encode: { format: "avif", quality: 60, speed: 10 },
+});
+if (avif) writeFileSync("output.avif", avif);
+
+// decode → クロップ → WebP
+const webp = convert(input, {
+  crop: { left: 0, top: 0, width: 800, height: 600 },
+  encode: { format: "webp", quality: 85 },
+});
+writeFileSync("thumb.webp", webp as Buffer);
 ```
 
 ## ブラウザ / Cloudflare Pages 対応（WASM）
@@ -348,7 +396,7 @@ bash scripts/mem-peak.sh
 | Cloudflare Pages（WASM） | ✅ `zenpix-wasm` | ✅ `zenpix-wasm` | ✅ `zenpix-wasm` | ✅ `zenpix-wasm`（ネイティブ DLL ではなく WASM） |
 | Cloudflare Workers | ❌（CPU 制限により非対応）| — | — | — |
 
-**npm のバージョン**: ルート **`zenpix`** とネイティブ optional **4 件**（上表の `zenpix-darwin-arm64` / `zenpix-darwin-x64` / `zenpix-linux-x64` / `zenpix-win32-x64`）は **同一 semver で publish** する（**現在の例: 0.4.0**）。`zenpix-win32-x64` は **0.2.0** から同梱。
+**npm のバージョン**: ルート **`zenpix`** とネイティブ optional **4 件**（上表の `zenpix-darwin-arm64` / `zenpix-darwin-x64` / `zenpix-linux-x64` / `zenpix-win32-x64`）は **同一 semver で publish** する（**現在: 0.6.0**）。`zenpix-win32-x64` は **0.2.0** から同梱。
 
 **Windows on ARM64（WoA）**: npm の **公式同梱はありません**（`zenpix-win32-arm64` は出さない方針）。**x64 版の Node.js** で動かすか、**`ZENPIX_LIB`** で手元ビルドの `libpict.dll` を指すか、**`zig build lib-windows-arm64 -Davif=static`**（`zig-out/windows-aarch64/`）を参照してください。詳細は **`docs/windows-rollout-plan.md` §3.3**。
 
@@ -367,6 +415,7 @@ MIT © 2026 月村つかさ
 - libwebp (BSD 3-Clause)
 - libavif (BSD 2-Clause)
 - libaom (BSD 2-Clause)
+- stb_image.h (MIT / Public Domain) — GIF デコード用
 
 ---
 
