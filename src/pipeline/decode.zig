@@ -6,6 +6,7 @@
 ///   - vtable パターンにより、コンパイル時に実装を選択できる (Wasm では軽量実装を選択可能)。
 
 const std = @import("std");
+const has_avif = @import("avif_options").has_avif;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 型定義
@@ -109,7 +110,7 @@ pub const Decoder = struct {
 // フォーマット判定ユーティリティ
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub const Format = enum { jpeg, png, webp, unknown };
+pub const Format = enum { jpeg, png, webp, avif, gif, unknown };
 
 /// magic bytes によるフォーマット検出 (拡張子に依存しない)
 pub fn detectFormat(data: []const u8) Format {
@@ -118,12 +119,31 @@ pub fn detectFormat(data: []const u8) Format {
     if (data[0] == 0xFF and data[1] == 0xD8 and data[2] == 0xFF) return .jpeg;
     // PNG: 89 50 4E 47
     if (data[0] == 0x89 and data[1] == 0x50 and data[2] == 0x4E and data[3] == 0x47) return .png;
+    // GIF: GIF87a or GIF89a
+    if (data.len >= 6 and
+        data[0] == 'G' and data[1] == 'I' and data[2] == 'F' and
+        data[3] == '8' and (data[4] == '7' or data[4] == '9') and data[5] == 'a')
+    {
+        return .gif;
+    }
     // WebP: RIFF....WEBP (still image container; animated はデコード側で拒否)
     if (data.len >= 12 and
         data[0] == 'R' and data[1] == 'I' and data[2] == 'F' and data[3] == 'F' and
         data[8] == 'W' and data[9] == 'E' and data[10] == 'B' and data[11] == 'P')
     {
         return .webp;
+    }
+    // AVIF: ISOBMFF ftyp box with avif/avis major brand
+    // Structure: [4-byte size][4-byte "ftyp"][4-byte brand]...
+    // size は big-endian u32; 最低 12 bytes 必要
+    if (data.len >= 12 and data[4] == 'f' and data[5] == 't' and data[6] == 'y' and data[7] == 'p') {
+        const b0 = data[8]; const b1 = data[9]; const b2 = data[10]; const b3 = data[11];
+        if ((b0 == 'a' and b1 == 'v' and b2 == 'i' and (b3 == 'f' or b3 == 's')) or
+            (b0 == 'a' and b1 == 'v' and b2 == 'i' and b3 == 'f') or
+            (b0 == 'm' and b1 == 'i' and b2 == 'f' and b3 == '1'))
+        {
+            return .avif;
+        }
     }
     return .unknown;
 }
@@ -517,6 +537,136 @@ pub fn webpDecoder() Decoder {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// AVIF decode C bridge (src/c/avif_decode.c) — has_avif=true のみ利用可能
+// ─────────────────────────────────────────────────────────────────────────────
+
+const avif_dec_c = if (has_avif) struct {
+    extern fn pict_avif_decode(
+        src: [*]const u8,
+        src_len: usize,
+        out_data: *[*]u8,
+        out_w: *u32,
+        out_h: *u32,
+        out_ch: *u32,
+    ) c_int;
+    extern fn pict_avif_decode_free(data: [*]u8) void;
+} else struct {};
+
+/// libavif を使って AVIF バイト列をデコードする Decoder 実装。
+pub const AvifDecoder = struct {
+    pub const vtable = Decoder.VTable{
+        .decode = decodeImpl,
+        .deinit = deinitImpl,
+    };
+
+    fn decodeImpl(
+        ptr: *anyopaque,
+        data: []const u8,
+        allocator: std.mem.Allocator,
+    ) DecodeError!ImageBuffer {
+        _ = ptr;
+        if (comptime !has_avif) return DecodeError.UnsupportedFormat;
+
+        var out_data: [*]u8 = undefined;
+        var out_w: u32 = 0;
+        var out_h: u32 = 0;
+        var out_ch: u32 = 0;
+
+        const result = avif_dec_c.pict_avif_decode(
+            data.ptr, data.len,
+            &out_data, &out_w, &out_h, &out_ch,
+        );
+        if (result != 0) return DecodeError.CorruptData;
+
+        const w: usize = out_w;
+        const h: usize = out_h;
+        const ch: usize = out_ch;
+        const total = w * h * ch;
+        defer avif_dec_c.pict_avif_decode_free(out_data);
+
+        const buf = try allocator.alloc(u8, total);
+        errdefer allocator.free(buf);
+        @memcpy(buf, out_data[0..total]);
+
+        const fmt: PixelFormat = if (ch == 4) .rgba8 else .rgb8;
+        return ImageBuffer{
+            .width = out_w, .height = out_h,
+            .channels = @intCast(out_ch),
+            .format = fmt,
+            .data = buf,
+            .icc = null,
+            .allocator = allocator,
+        };
+    }
+
+    fn deinitImpl(ptr: *anyopaque) void { _ = ptr; }
+};
+
+pub fn avifDecoder() Decoder {
+    const Anchor = struct { var byte: u8 = 0; };
+    return .{ .ptr = &Anchor.byte, .vtable = &AvifDecoder.vtable };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GIF decode C bridge (src/c/gif_decode.c / stb_image)
+// ─────────────────────────────────────────────────────────────────────────────
+
+extern fn pict_gif_decode(
+    src: [*]const u8,
+    src_len: usize,
+    out_data: *[*]u8,
+    out_w: *u32,
+    out_h: *u32,
+) c_int;
+extern fn pict_gif_decode_free(data: [*]u8) void;
+
+/// stb_image を使って GIF バイト列をデコードする Decoder 実装 (1フレーム目のみ)。
+pub const GifDecoder = struct {
+    pub const vtable = Decoder.VTable{
+        .decode = decodeImpl,
+        .deinit = deinitImpl,
+    };
+
+    fn decodeImpl(
+        ptr: *anyopaque,
+        data: []const u8,
+        allocator: std.mem.Allocator,
+    ) DecodeError!ImageBuffer {
+        _ = ptr;
+
+        var out_data: [*]u8 = undefined;
+        var out_w: u32 = 0;
+        var out_h: u32 = 0;
+
+        const result = pict_gif_decode(data.ptr, data.len, &out_data, &out_w, &out_h);
+        if (result != 0) return DecodeError.CorruptData;
+
+        const total = @as(usize, out_w) * @as(usize, out_h) * 3;
+        defer pict_gif_decode_free(out_data);
+
+        const buf = try allocator.alloc(u8, total);
+        errdefer allocator.free(buf);
+        @memcpy(buf, out_data[0..total]);
+
+        return ImageBuffer{
+            .width = out_w, .height = out_h,
+            .channels = 3,
+            .format = .rgb8,
+            .data = buf,
+            .icc = null,
+            .allocator = allocator,
+        };
+    }
+
+    fn deinitImpl(ptr: *anyopaque) void { _ = ptr; }
+};
+
+pub fn gifDecoder() Decoder {
+    const Anchor = struct { var byte: u8 = 0; };
+    return .{ .ptr = &Anchor.byte, .vtable = &GifDecoder.vtable };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // テスト
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -551,6 +701,27 @@ test "detectFormat: RIFF but not WebP" {
     @memcpy(hdr[8..12], "WAVE");
     @memset(hdr[12..16], 0);
     try std.testing.expectEqual(Format.unknown, detectFormat(&hdr));
+}
+
+test "detectFormat: GIF87a magic" {
+    const hdr = [_]u8{ 'G', 'I', 'F', '8', '7', 'a', 0, 0 };
+    try std.testing.expectEqual(Format.gif, detectFormat(&hdr));
+}
+
+test "detectFormat: GIF89a magic" {
+    const hdr = [_]u8{ 'G', 'I', 'F', '8', '9', 'a', 0, 0 };
+    try std.testing.expectEqual(Format.gif, detectFormat(&hdr));
+}
+
+test "detectFormat: AVIF ftyp box" {
+    var hdr = [_]u8{0} ** 16;
+    // box size (big-endian u32) — ダミー値
+    hdr[0] = 0; hdr[1] = 0; hdr[2] = 0; hdr[3] = 32;
+    // box type: "ftyp"
+    hdr[4] = 'f'; hdr[5] = 't'; hdr[6] = 'y'; hdr[7] = 'p';
+    // major brand: "avif"
+    hdr[8] = 'a'; hdr[9] = 'v'; hdr[10] = 'i'; hdr[11] = 'f';
+    try std.testing.expectEqual(Format.avif, detectFormat(&hdr));
 }
 
 test "ImageBuffer: stride and rowSlice" {

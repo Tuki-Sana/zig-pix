@@ -59,6 +59,11 @@ const pict_resize = lib.func(
   "uint8 *pict_resize(const uint8 *src, uint32 src_w, uint32 src_h, uint8 channels, uint32 dst_w, uint32 dst_h, uint32 n_threads, uint64 *out_len)"
 );
 
+// pict_resize_v2(src, ..., fit, n_threads, out_actual_w, out_actual_h, out_len) -> uint8 * | null
+const pict_resize_v2 = lib.func(
+  "uint8 *pict_resize_v2(const uint8 *src, uint32 src_w, uint32 src_h, uint8 channels, uint32 dst_w, uint32 dst_h, uint8 fit, uint32 n_threads, uint32 *out_actual_w, uint32 *out_actual_h, uint64 *out_len)"
+);
+
 // pict_encode_webp_v2(..., icc, icc_len, out_len) -> uint8 * | null
 const pict_encode_webp_v2 = lib.func(
   "uint8 *pict_encode_webp_v2(const uint8 *pixels, uint32 width, uint32 height, uint8 channels, float quality, bool lossless, uint8 *icc, uint64 icc_len, uint64 *out_len)"
@@ -480,11 +485,121 @@ try {
       }
     }
   }
+  // ── Case L: pict_decode_v3 — AVIF ──────────────────────────────────────────
+  {
+    const avifPath = join(repoRoot, "vendor/libavif/tests/data/paris_icc_exif_xmp.avif");
+    let avifBytes: Buffer;
+    try {
+      avifBytes = readFileSync(avifPath);
+    } catch {
+      fail("L: pict_decode_v3 AVIF", `missing fixture ${avifPath}`);
+      avifBytes = Buffer.alloc(0);
+    }
+    if (avifBytes.byteLength > 0) {
+      const outW   = new Uint32Array(1);
+      const outH   = new Uint32Array(1);
+      const outCh  = new Uint8Array(1);
+      const outLen = new BigUint64Array(1);
+      const iccPtrSlot: unknown[] = [null];
+      const iccLenBuf = new BigUint64Array(1);
+
+      const result = pict_decode_v3(avifBytes, BigInt(avifBytes.byteLength), outW, outH, outCh, outLen, iccPtrSlot, iccLenBuf);
+      if (result === null) {
+        fail("L: pict_decode_v3 AVIF", "returned null");
+      } else {
+        const ok = outW[0] > 0 && outH[0] > 0 && (outCh[0] === 3 || outCh[0] === 4);
+        const iccNative = iccPtrSlot[0];
+        if (iccNative != null && iccLenBuf[0] > 0n) pict_free_buffer(iccNative, iccLenBuf[0]);
+        pict_free_buffer(result, outLen[0]);
+        if (!ok) {
+          fail("L: pict_decode_v3 AVIF", `unexpected w=${outW[0]} h=${outH[0]} ch=${outCh[0]}`);
+        } else {
+          pass(`L: pict_decode_v3 AVIF — ${outW[0]}x${outH[0]} ch=${outCh[0]}`);
+        }
+      }
+    }
+  }
+
+  // ── Case M: pict_decode_v3 — GIF (first frame) ──────────────────────────────
+  {
+    const GIF_1X1 = Buffer.from([
+      0x47,0x49,0x46,0x38,0x39,0x61,
+      0x01,0x00,0x01,0x00,0x80,0x00,0x00,
+      0x00,0x00,0x00, 0xFF,0xFF,0xFF,
+      0x21,0xF9,0x04,0x01,0x00,0x00,0x00,0x00,
+      0x2C,0x00,0x00,0x00,0x00,0x01,0x00,0x01,0x00,0x00,
+      0x02,0x02,0x4C,0x01,0x00,
+      0x3B,
+    ]);
+    const outW   = new Uint32Array(1);
+    const outH   = new Uint32Array(1);
+    const outCh  = new Uint8Array(1);
+    const outLen = new BigUint64Array(1);
+    const iccPtrSlot: unknown[] = [null];
+    const iccLenBuf = new BigUint64Array(1);
+
+    const result = pict_decode_v3(GIF_1X1, BigInt(GIF_1X1.byteLength), outW, outH, outCh, outLen, iccPtrSlot, iccLenBuf);
+    if (result === null) {
+      fail("M: pict_decode_v3 GIF", "returned null");
+    } else {
+      const ok = outW[0] === 1 && outH[0] === 1 && outCh[0] === 3 && outLen[0] === 3n;
+      pict_free_buffer(result, outLen[0]);
+      if (!ok) {
+        fail("M: pict_decode_v3 GIF", `unexpected w=${outW[0]} h=${outH[0]} ch=${outCh[0]} len=${outLen[0]}`);
+      } else {
+        pass(`M: pict_decode_v3 GIF — ${outW[0]}x${outH[0]} ch=${outCh[0]}, RGB forced`);
+      }
+    }
+  }
+
+  // ── Case N: pict_resize_v2 — contain and cover ─────────────────────────────
+  {
+    const srcW = 100, srcH = 50, CH = 3;
+    const src = Buffer.alloc(srcW * srcH * CH, 128);
+
+    // contain: 100×50 → fit in 80×80 → 80×40
+    {
+      const outActualW = new Uint32Array(1);
+      const outActualH = new Uint32Array(1);
+      const outLen     = new BigUint64Array(1);
+      const result = pict_resize_v2(src, srcW, srcH, CH, 80, 80, 1, 1, outActualW, outActualH, outLen);
+      if (result === null) {
+        fail("N: pict_resize_v2 contain", "returned null");
+      } else {
+        const ok = outActualW[0] === 80 && outActualH[0] === 40;
+        pict_free_buffer(result, outLen[0]);
+        if (!ok) {
+          fail("N: pict_resize_v2 contain", `expected 80×40, got ${outActualW[0]}×${outActualH[0]}`);
+        } else {
+          pass(`N: pict_resize_v2 contain — ${outActualW[0]}×${outActualH[0]}`);
+        }
+      }
+    }
+
+    // cover: 100×50 → cover 80×80 → 80×80
+    {
+      const outActualW = new Uint32Array(1);
+      const outActualH = new Uint32Array(1);
+      const outLen     = new BigUint64Array(1);
+      const result = pict_resize_v2(src, srcW, srcH, CH, 80, 80, 2, 1, outActualW, outActualH, outLen);
+      if (result === null) {
+        fail("N: pict_resize_v2 cover", "returned null");
+      } else {
+        const ok = outActualW[0] === 80 && outActualH[0] === 80;
+        pict_free_buffer(result, outLen[0]);
+        if (!ok) {
+          fail("N: pict_resize_v2 cover", `expected 80×80, got ${outActualW[0]}×${outActualH[0]}`);
+        } else {
+          pass(`N: pict_resize_v2 cover — ${outActualW[0]}×${outActualH[0]}`);
+        }
+      }
+    }
+  }
 } finally {
   lib?.unload();
 }
 
-const TOTAL = 12;
+const TOTAL = 15;
 if (failed > 0) {
   console.error(`\n${failed} / ${TOTAL} test(s) FAILED.`);
   process.exit(1);

@@ -63,6 +63,23 @@ const lib = dlopen(LIB_PATH, {
     ],
     returns: FFIType.ptr,
   },
+  // pict_resize_v2(src, src_w, src_h, channels, dst_w, dst_h, fit, n_threads, out_actual_w, out_actual_h, out_len) -> ?[*]u8
+  pict_resize_v2: {
+    args: [
+      FFIType.ptr, // src
+      FFIType.u32, // src_w
+      FFIType.u32, // src_h
+      FFIType.u8,  // channels
+      FFIType.u32, // dst_w
+      FFIType.u32, // dst_h
+      FFIType.u8,  // fit: 0=stretch, 1=contain, 2=cover
+      FFIType.u32, // n_threads
+      FFIType.ptr, // out_actual_w: ?*u32
+      FFIType.ptr, // out_actual_h: ?*u32
+      FFIType.ptr, // out_len: ?*usize
+    ],
+    returns: FFIType.ptr,
+  },
   pict_encode_webp_v2: {
     args: [
       FFIType.ptr,
@@ -589,11 +606,152 @@ try {
       }
     }
   }
+  // ── Case L: pict_decode_v3 — AVIF ──────────────────────────────────────────
+  // Decode a small AVIF from libavif test data; verify w/h > 0 and ch is 3 or 4.
+  {
+    const avifPath = join(repoRoot, "vendor/libavif/tests/data/paris_icc_exif_xmp.avif");
+    let avifBytes: Uint8Array;
+    try {
+      avifBytes = readFileSync(avifPath);
+    } catch {
+      fail("L: pict_decode_v3 AVIF", `missing fixture ${avifPath}`);
+      avifBytes = new Uint8Array(0);
+    }
+    if (avifBytes.byteLength > 0) {
+      const outW   = new Uint32Array(1);
+      const outH   = new Uint32Array(1);
+      const outCh  = new Uint8Array(1);
+      const outLen = new BigUint64Array(1);
+      const iccPtrSlot = new BigUint64Array(1);
+      const iccLenBuf  = new BigUint64Array(1);
+
+      const result = symbols.pict_decode_v3(
+        ptr(avifBytes), BigInt(avifBytes.byteLength),
+        ptr(outW), ptr(outH), ptr(outCh), ptr(outLen),
+        ptr(iccPtrSlot), ptr(iccLenBuf),
+      );
+
+      if (result === null) {
+        fail("L: pict_decode_v3 AVIF", "returned null");
+      } else {
+        const ok = outW[0] > 0 && outH[0] > 0 && (outCh[0] === 3 || outCh[0] === 4);
+        if (iccPtrSlot[0] !== 0n && iccLenBuf[0] > 0n) {
+          symbols.pict_free_buffer(Number(iccPtrSlot[0]), iccLenBuf[0]);
+        }
+        symbols.pict_free_buffer(result, outLen[0]);
+        if (!ok) {
+          fail("L: pict_decode_v3 AVIF", `unexpected w=${outW[0]} h=${outH[0]} ch=${outCh[0]}`);
+        } else {
+          pass(`L: pict_decode_v3 AVIF — ${outW[0]}x${outH[0]} ch=${outCh[0]}`);
+        }
+      }
+    }
+  }
+
+  // ── Case M: pict_decode_v3 — GIF (first frame) ──────────────────────────────
+  // Minimal 1×1 GIF89a (transparent pixel). stb_image forces RGB output.
+  {
+    // 1×1 transparent GIF89a, 35 bytes — well-known tracking-pixel format
+    const GIF_1X1 = new Uint8Array([
+      0x47,0x49,0x46,0x38,0x39,0x61, // GIF89a
+      0x01,0x00,0x01,0x00,0x80,0x00,0x00, // LSD: 1×1, global CT, 2 colors
+      0x00,0x00,0x00, // color 0: black
+      0xFF,0xFF,0xFF, // color 1: white
+      0x21,0xF9,0x04,0x01,0x00,0x00,0x00,0x00, // GCE: transparent index=0
+      0x2C,0x00,0x00,0x00,0x00,0x01,0x00,0x01,0x00,0x00, // image descriptor
+      0x02,0x02,0x4C,0x01,0x00, // LZW min=2, block=2, data, terminator
+      0x3B, // trailer
+    ]);
+
+    const outW   = new Uint32Array(1);
+    const outH   = new Uint32Array(1);
+    const outCh  = new Uint8Array(1);
+    const outLen = new BigUint64Array(1);
+    const iccPtrSlot = new BigUint64Array(1);
+    const iccLenBuf  = new BigUint64Array(1);
+
+    const result = symbols.pict_decode_v3(
+      ptr(GIF_1X1), BigInt(GIF_1X1.byteLength),
+      ptr(outW), ptr(outH), ptr(outCh), ptr(outLen),
+      ptr(iccPtrSlot), ptr(iccLenBuf),
+    );
+
+    if (result === null) {
+      fail("M: pict_decode_v3 GIF", "returned null");
+    } else {
+      const ok = outW[0] === 1 && outH[0] === 1 && outCh[0] === 3 && outLen[0] === 3n;
+      symbols.pict_free_buffer(result, outLen[0]);
+      if (!ok) {
+        fail("M: pict_decode_v3 GIF", `unexpected w=${outW[0]} h=${outH[0]} ch=${outCh[0]} len=${outLen[0]}`);
+      } else {
+        pass(`M: pict_decode_v3 GIF — ${outW[0]}x${outH[0]} ch=${outCh[0]}, RGB forced`);
+      }
+    }
+  }
+
+  // ── Case N: pict_resize_v2 — contain and cover fit modes ────────────────────
+  // Source: 100×50 RGB. Target box: 80×80.
+  // contain: scale = min(80/100, 80/50) = min(0.8, 1.6) = 0.8 → actual = 80×40
+  // cover:   scale = max(80/100, 80/50) = max(0.8, 1.6) = 1.6 → actual = 80×80 (crop)
+  {
+    const srcW = 100, srcH = 50, CH = 3;
+    const src = new Uint8Array(srcW * srcH * CH).fill(128);
+
+    // contain
+    {
+      const outActualW = new Uint32Array(1);
+      const outActualH = new Uint32Array(1);
+      const outLen     = new BigUint64Array(1);
+      const result = symbols.pict_resize_v2(
+        ptr(src), srcW, srcH, CH,
+        80, 80,  // dst box
+        1,       // contain
+        1,       // threads
+        ptr(outActualW), ptr(outActualH), ptr(outLen),
+      );
+      if (result === null) {
+        fail("N: pict_resize_v2 contain", "returned null");
+      } else {
+        const ok = outActualW[0] === 80 && outActualH[0] === 40;
+        symbols.pict_free_buffer(result, outLen[0]);
+        if (!ok) {
+          fail("N: pict_resize_v2 contain", `expected 80×40, got ${outActualW[0]}×${outActualH[0]}`);
+        } else {
+          pass(`N: pict_resize_v2 contain — ${outActualW[0]}×${outActualH[0]}`);
+        }
+      }
+    }
+
+    // cover
+    {
+      const outActualW = new Uint32Array(1);
+      const outActualH = new Uint32Array(1);
+      const outLen     = new BigUint64Array(1);
+      const result = symbols.pict_resize_v2(
+        ptr(src), srcW, srcH, CH,
+        80, 80,  // dst box
+        2,       // cover
+        1,       // threads
+        ptr(outActualW), ptr(outActualH), ptr(outLen),
+      );
+      if (result === null) {
+        fail("N: pict_resize_v2 cover", "returned null");
+      } else {
+        const ok = outActualW[0] === 80 && outActualH[0] === 80;
+        symbols.pict_free_buffer(result, outLen[0]);
+        if (!ok) {
+          fail("N: pict_resize_v2 cover", `expected 80×80, got ${outActualW[0]}×${outActualH[0]}`);
+        } else {
+          pass(`N: pict_resize_v2 cover — ${outActualW[0]}×${outActualH[0]}`);
+        }
+      }
+    }
+  }
 } finally {
   lib.close();
 }
 
-const TOTAL = 12;
+const TOTAL = 15;
 if (failed > 0) {
   console.error(`\n${failed} / ${TOTAL} test(s) FAILED.`);
   process.exit(1);

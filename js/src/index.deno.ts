@@ -3,11 +3,12 @@
  * Deno entry point using Deno.dlopen
  *
  * Supported operations:
- *   decode()     — JPEG / PNG / still WebP → raw pixels（埋め込み ICC があれば返す）
- *   resize()     — Lanczos-3 high-quality resize
+ *   decode()     — JPEG / PNG / WebP / AVIF / GIF → raw pixels（埋め込み ICC があれば返す）
+ *   resize()     — Lanczos-3 high-quality resize (stretch / contain / cover)
  *   encodeWebP() — WebP encode (lossy / lossless)
  *   encodeAvif() — AVIF encode
  *   encodePng()  — PNG encode with optional ICC passthrough
+ *   convert()    — one-shot decode → resize → encode pipeline
  *
  * Memory model:
  *   All returned Uint8Arrays are independently owned (copied from native memory).
@@ -107,6 +108,22 @@ const _lib = Deno.dlopen(resolveLibPath(), {
       "u32",     // uint32 dst_w
       "u32",     // uint32 dst_h
       "u32",     // uint32 n_threads
+      "pointer", // uint64 *out_len
+    ],
+    result: "pointer",
+  },
+  pict_resize_v2: {
+    parameters: [
+      "pointer", // const uint8 *src
+      "u32",     // uint32 src_w
+      "u32",     // uint32 src_h
+      "u8",      // uint8 channels
+      "u32",     // uint32 dst_w
+      "u32",     // uint32 dst_h
+      "u8",      // uint8 fit
+      "u32",     // uint32 n_threads
+      "pointer", // uint32 *out_actual_w
+      "pointer", // uint32 *out_actual_h
       "pointer", // uint64 *out_len
     ],
     result: "pointer",
@@ -237,16 +254,24 @@ export interface ImageBuffer {
 export interface ResizeOptions {
   /**
    * Target width in pixels.
-   * If omitted, calculated from height to preserve aspect ratio.
+   * If omitted, calculated from height to preserve aspect ratio (stretch mode only).
    */
   width?: number;
   /**
    * Target height in pixels.
-   * If omitted, calculated from width to preserve aspect ratio.
+   * If omitted, calculated from width to preserve aspect ratio (stretch mode only).
    */
   height?: number;
   /** Number of parallel threads (default: 1) */
   threads?: number;
+  /**
+   * How to fit the image into width × height (default: "stretch").
+   * - "stretch" — resize to exactly width × height (may distort)
+   * - "contain" — scale to fit within width × height, preserving aspect ratio; output may be smaller
+   * - "cover"   — scale to cover width × height, center crop, preserving aspect ratio
+   * When using "contain" or "cover", both width and height must be specified.
+   */
+  fit?: "stretch" | "contain" | "cover";
 }
 
 export interface WebPOptions {
@@ -283,8 +308,8 @@ export interface CropOptions {
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
- * Decode a JPEG, PNG, or still-image WebP buffer into raw pixel data.
- * HEIC/HEIF, animated WebP, and other formats are not supported.
+ * Decode a JPEG, PNG, WebP, AVIF, or GIF buffer into raw pixel data.
+ * GIF: only the first frame is decoded (no animation).
  * Embedded ICC (if any) is returned in `icc`.
  * JPEG EXIF Orientation (2–8) is applied automatically.
  * @throws {Error} if the input cannot be decoded, or if EXIF rotation fails (OOM)
@@ -369,26 +394,36 @@ export function decode(input: Uint8Array): ImageBuffer {
 
 /**
  * Resize pixel data using Lanczos-3 filter.
- * At least one of width or height must be specified.
- * The missing dimension is calculated to preserve the aspect ratio.
+ * At least one of width or height must be specified (for "stretch" mode).
+ * For "contain" and "cover" fit modes, both must be specified.
  * @throws {Error} if options are invalid or the resize fails
  */
 export function resize(image: ImageBuffer, options: ResizeOptions): ImageBuffer {
-  let { width, height, threads = 1 } = options;
+  let { width, height, threads = 1, fit = "stretch" } = options;
+  const fitCode = fit === "contain" ? 1 : fit === "cover" ? 2 : 0;
 
-  if (!width && !height) {
-    throw new Error("zenpix: resize requires at least one of width or height");
+  if (fitCode !== 0) {
+    if (!width || !height) {
+      throw new Error("zenpix: resize with fit='contain' or 'cover' requires both width and height");
+    }
+  } else {
+    if (!width && !height) {
+      throw new Error("zenpix: resize requires at least one of width or height");
+    }
+    if (!width)  width  = Math.round((image.width  / image.height) * height!);
+    if (!height) height = Math.round((image.height / image.width)  * width);
   }
 
-  if (!width)  width  = Math.round((image.width  / image.height) * height!);
-  if (!height) height = Math.round((image.height / image.width)  * width);
-
-  const outLenBuf = new Uint8Array(8);
-  const ptr = _lib.symbols.pict_resize(
+  const outActualWBuf = new Uint8Array(4);
+  const outActualHBuf = new Uint8Array(4);
+  const outLenBuf     = new Uint8Array(8);
+  const ptr = _lib.symbols.pict_resize_v2(
     Deno.UnsafePointer.of(image.data),
     image.width, image.height, image.channels,
-    width, height,
-    threads,
+    width!, height!,
+    fitCode, threads,
+    Deno.UnsafePointer.of(outActualWBuf),
+    Deno.UnsafePointer.of(outActualHBuf),
     Deno.UnsafePointer.of(outLenBuf),
   );
 
@@ -397,8 +432,8 @@ export function resize(image: ImageBuffer, options: ResizeOptions): ImageBuffer 
   const len = readU64(outLenBuf);
   const out: ImageBuffer = {
     data:     copyAndFree(ptr, len),
-    width,
-    height,
+    width:    readU32(outActualWBuf),
+    height:   readU32(outActualHBuf),
     channels: image.channels,
   };
   if (image.icc !== undefined && image.icc.byteLength > 0) {
@@ -490,6 +525,37 @@ export function encodePng(image: ImageBuffer, options: PngOptions = {}): Uint8Ar
 
   const len = readU64(outLenBuf);
   return copyAndFree(ptr, len);
+}
+
+export type ConvertEncodeOptions =
+  | ({ format: "webp" } & WebPOptions)
+  | ({ format: "avif" } & AvifOptions)
+  | ({ format: "png" }  & PngOptions);
+
+export interface ConvertOptions {
+  /** Crop before resize (optional) */
+  crop?: CropOptions;
+  /** Resize after crop (optional) */
+  resize?: ResizeOptions;
+  /** Output format and encoder options (required) */
+  encode: ConvertEncodeOptions;
+}
+
+/**
+ * One-shot pipeline: decode → crop → resize → encode.
+ * Returns null only when encoding to AVIF with unsupported options or no AVIF support.
+ * @throws {Error} if decode or encode fails
+ */
+export function convert(input: Uint8Array, options: ConvertOptions): Uint8Array | null {
+  let image = decode(input);
+
+  if (options.crop)   image = crop(image, options.crop);
+  if (options.resize) image = resize(image, options.resize);
+
+  const { encode: enc } = options;
+  if (enc.format === "webp") return encodeWebP(image, enc);
+  if (enc.format === "avif") return encodeAvif(image, enc);
+  return encodePng(image, enc);
 }
 
 /**

@@ -8,7 +8,7 @@
  *   deno run --allow-read --allow-ffi --allow-env test/ffi/test.deno.ts
  */
 
-import { decode, resize, encodeWebP, encodeAvif, encodePng, crop } from "../../js/src/index.deno.ts";
+import { decode, resize, encodeWebP, encodeAvif, encodePng, crop, convert } from "../../js/src/index.deno.ts";
 import { join, dirname, fromFileUrl } from "jsr:@std/path";
 
 const __dirname = dirname(fromFileUrl(import.meta.url));
@@ -226,8 +226,97 @@ function fail(label: string, reason: string): void {
   }
 }
 
+// ── Case L: decode AVIF ───────────────────────────────────────────────────────
+{
+  try {
+    const avifPath = join(__dirname, "../../vendor/libavif/tests/data/paris_icc_exif_xmp.avif");
+    const avifBytes = Deno.readFileSync(avifPath);
+    const img = decode(avifBytes);
+    const ok = img.width > 0 && img.height > 0 && (img.channels === 3 || img.channels === 4);
+    if (!ok) {
+      fail("L: decode AVIF", `unexpected w=${img.width} h=${img.height} ch=${img.channels}`);
+    } else {
+      pass(`L: decode AVIF — ${img.width}x${img.height} ch=${img.channels}`);
+    }
+  } catch (e) {
+    fail("L: decode AVIF", e instanceof Error ? e.message : String(e));
+  }
+}
+
+// ── Case M: decode GIF (first frame) ─────────────────────────────────────────
+{
+  try {
+    const GIF_1X1 = new Uint8Array([
+      0x47,0x49,0x46,0x38,0x39,0x61,
+      0x01,0x00,0x01,0x00,0x80,0x00,0x00,
+      0x00,0x00,0x00, 0xFF,0xFF,0xFF,
+      0x21,0xF9,0x04,0x01,0x00,0x00,0x00,0x00,
+      0x2C,0x00,0x00,0x00,0x00,0x01,0x00,0x01,0x00,0x00,
+      0x02,0x02,0x4C,0x01,0x00,
+      0x3B,
+    ]);
+    const img = decode(GIF_1X1);
+    if (img.width !== 1 || img.height !== 1 || img.channels !== 3) {
+      fail("M: decode GIF", `expected 1x1 ch=3, got ${img.width}x${img.height} ch=${img.channels}`);
+    } else {
+      pass(`M: decode GIF — ${img.width}x${img.height} ch=${img.channels}, RGB forced`);
+    }
+  } catch (e) {
+    fail("M: decode GIF", e instanceof Error ? e.message : String(e));
+  }
+}
+
+// ── Case N: resize fit modes — contain and cover ──────────────────────────────
+{
+  try {
+    const src = decode(PNG_1X1_RGBA);
+    // upscale to 100×50 first via stretch
+    const wide = resize(src, { width: 100, height: 50 });
+
+    // contain: 100×50 → fit in 80×80 → 80×40
+    const contained = resize(wide, { width: 80, height: 80, fit: "contain" });
+    if (contained.width !== 80 || contained.height !== 40) {
+      fail("N: resize contain", `expected 80×40, got ${contained.width}×${contained.height}`);
+    } else {
+      pass(`N: resize contain — ${contained.width}×${contained.height}`);
+    }
+
+    // cover: 100×50 → cover 80×80 → 80×80
+    const covered = resize(wide, { width: 80, height: 80, fit: "cover" });
+    if (covered.width !== 80 || covered.height !== 80) {
+      fail("N: resize cover", `expected 80×80, got ${covered.width}×${covered.height}`);
+    } else {
+      pass(`N: resize cover — ${covered.width}×${covered.height}`);
+    }
+  } catch (e) {
+    fail("N: resize fit modes", e instanceof Error ? e.message : String(e));
+  }
+}
+
+// ── Case O: convert pipeline ──────────────────────────────────────────────────
+{
+  try {
+    const result = convert(PNG_1X1_RGBA, {
+      resize: { width: 4, height: 4 },
+      encode: { format: "webp", quality: 80 },
+    });
+    if (result === null) {
+      fail("O: convert", "returned null");
+    } else {
+      const isRiff = result[0] === 0x52 && result[1] === 0x49 && result[2] === 0x46 && result[3] === 0x46;
+      if (!isRiff) {
+        fail("O: convert", `expected RIFF header, got ${result.slice(0,4)}`);
+      } else {
+        pass(`O: convert — PNG→resize→WebP, len=${result.byteLength}`);
+      }
+    }
+  } catch (e) {
+    fail("O: convert", e instanceof Error ? e.message : String(e));
+  }
+}
+
 // ── Summary ───────────────────────────────────────────────────────────────────
-const TOTAL = 10; // A, B, C, E, G×2, H, I, J, K
+const TOTAL = 15; // A, B, C, E, G×2, H, I, J, K, L, M, N×2, O
 if (failed > 0) {
   console.error(`\n${failed} / ${TOTAL} test(s) FAILED.`);
   Deno.exit(1);
