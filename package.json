@@ -1,6 +1,6 @@
 {
   "name": "zenpix",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "High-performance image processing engine (Zig + libavif). Decode, resize, WebP/AVIF encode. Speed vs Sharp depends on pipeline and hardware — see README benchmarks.",
   "type": "module",
   "main": "js/dist/index.js",
@@ -48,10 +48,10 @@
     "url": "https://github.com/Tuki-Sana/zenpix.git"
   },
   "optionalDependencies": {
-    "zenpix-darwin-arm64": "0.6.0",
-    "zenpix-darwin-x64": "0.6.0",
-    "zenpix-linux-x64": "0.6.0",
-    "zenpix-win32-x64": "0.6.0"
+    "zenpix-darwin-arm64": "0.7.0",
+    "zenpix-darwin-x64": "0.7.0",
+    "zenpix-linux-x64": "0.7.0",
+    "zenpix-win32-x64": "0.7.0"
   },
   "dependencies": {
     "koffi": "^2.16.0"

@@ -46,6 +46,58 @@ import { decode, resize, encodeWebP, encodeAvif, encodePng, crop, convert } from
 
 > ソースからビルドする場合（開発者向け）は `docs/operations.md`、**npm 公開手順**は `docs/release.md` を参照してください。
 
+## CLI
+
+`npx zenpix` でインストール不要で使えます。グローバルインストールも可能です。
+
+```bash
+npm install -g zenpix   # グローバルインストール（任意）
+```
+
+```bash
+# 基本：拡張子でフォーマット自動判定、省略時は .avif
+zenpix photo.jpg                          # → photo.avif (quality=60)
+zenpix photo.jpg output.webp -q 92        # → WebP
+
+# リサイズ
+zenpix photo.jpg --max-size 1920          # 長辺を 1920px 以下に
+zenpix photo.jpg out.avif --width 960 --height 540 --fit cover
+
+# バッチ（シェルのグロブ展開で複数ファイル）
+zenpix *.jpg --out-dir ./avif/
+zenpix *.png -f webp --out-dir ./webp/
+
+# stdin / stdout（パイプラインへの組み込み）
+cat photo.jpg | zenpix - output.avif
+zenpix photo.jpg - | your-next-command
+
+# マルチスレッド AVIF（大量バッチ時に有効）
+zenpix *.jpg --out-dir ./avif/ --threads 8
+```
+
+**主なオプション:**
+
+| オプション | 説明 | デフォルト |
+|---|---|---|
+| `-f, --format` | `avif` \| `webp` \| `png` | 出力拡張子、または `avif` |
+| `-q, --quality` | 品質 0–100 | AVIF: 60、WebP: 92 |
+| `-s, --speed` | AVIF エンコード速度 0–10（10 = 最速） | 6 |
+| `--threads` | AVIF エンコードスレッド数 | 1 |
+| `--max-size` | 長辺の最大 px（contain） | — |
+| `--width / --height` | 出力サイズ | — |
+| `--fit` | `stretch` \| `contain` \| `cover` | `contain` |
+| `--out-dir` | バッチ出力先ディレクトリ | — |
+
+**Python から呼ぶ例:**
+
+```python
+import subprocess
+subprocess.run(["npx", "zenpix", "input.jpg", "output.avif", "-q", "60"], check=True)
+
+# バッチ
+subprocess.run(["npx", "zenpix", *glob.glob("*.jpg"), "--out-dir", "./avif/"], check=True)
+```
+
 ## 使い方
 
 ```typescript
@@ -411,7 +463,7 @@ bash scripts/mem-peak.sh
 | Cloudflare Pages（WASM） | ✅ `zenpix-wasm` | ✅ `zenpix-wasm` | ✅ `zenpix-wasm` | ✅ `zenpix-wasm`（ネイティブ DLL ではなく WASM） |
 | Cloudflare Workers | ❌（CPU 制限により非対応）| — | — | — |
 
-**npm のバージョン**: ルート **`zenpix`** とネイティブ optional **4 件**（上表の `zenpix-darwin-arm64` / `zenpix-darwin-x64` / `zenpix-linux-x64` / `zenpix-win32-x64`）は **同一 semver で publish** する（**現在: 0.6.0**）。`zenpix-win32-x64` は **0.2.0** から同梱。
+**npm のバージョン**: ルート **`zenpix`** とネイティブ optional **4 件**（上表の `zenpix-darwin-arm64` / `zenpix-darwin-x64` / `zenpix-linux-x64` / `zenpix-win32-x64`）は **同一 semver で publish** する（**現在: 0.7.0**）。`zenpix-win32-x64` は **0.2.0** から同梱。
 
 **Windows on ARM64（WoA）**: npm の **公式同梱はありません**（`zenpix-win32-arm64` は出さない方針）。**x64 版の Node.js** で動かすか、**`ZENPIX_LIB`** で手元ビルドの `libpict.dll` を指すか、**`zig build lib-windows-arm64 -Davif=static`**（`zig-out/windows-aarch64/`）を参照してください。詳細は **`docs/windows-rollout-plan.md` §3.3**。
 
