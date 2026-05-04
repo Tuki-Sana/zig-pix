@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Aggregate bench/bench.ts benchmark.json from multiple runs (same fixtures).
- * For each cell: median of zigpix median_ms, median of sharp median_ms, then ratio = sharp/zigpix.
+ * For each cell: median of zenpix median_ms, median of sharp median_ms, then ratio = sharp/zenpix.
  *
  * Usage:
  *   node scripts/bench-aggregate-multi-run.mjs
@@ -43,7 +43,7 @@ function aggregate(paths) {
       for (const r of runs) {
         const fx = r.fixtures.find((x) => x.id === f.id);
         const s = fx.scenarios.find((x) => x.id === sc.id);
-        z.push(s.zigpix.median_ms);
+        z.push(s.zenpix.median_ms);
         sh.push(s.sharp.median_ms);
       }
       const zm = median3(z[0], z[1], z[2]);
@@ -82,7 +82,7 @@ function ratioTableMd(rows) {
 
 function fullTableMd(rows) {
   const lines = [
-    "| フィクスチャ | シナリオ | zigpix（ms） | Sharp（ms） | ratio |",
+    "| フィクスチャ | シナリオ | zenpix（ms） | Sharp（ms） | ratio |",
     "|--------------|----------|-------------:|------------:|------:|",
   ];
   const sidLabel = { fhd: "FHD", wqhd: "WQHD", uhd4k: "4K" };
