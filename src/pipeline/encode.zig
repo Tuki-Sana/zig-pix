@@ -29,6 +29,8 @@ pub const AvifOptions = struct {
     quality: u8 = 60,
     /// エンコーダスピード 0..10 (10 = 最速 / 最低品質努力)
     speed: u8 = 6,
+    /// エンコーダスレッド数（デフォルト: 1 = シングルスレッド）
+    threads: u8 = 1,
 };
 
 pub const PngOptions = struct {
@@ -235,6 +237,7 @@ const avif_c = if (has_avif) struct {
         channels: c_int,
         quality: c_int,
         speed: c_int,
+        threads: c_int,
         icc: ?[*]const u8,
         icc_len: usize,
         out_data: *[*]u8,
@@ -284,6 +287,7 @@ pub const AvifEncoder = struct {
             @intCast(image.channels),
             @intCast(opts.quality),
             @intCast(opts.speed),
+            @intCast(opts.threads),
             icc_ptr,
             icc_len,
             &out_data,

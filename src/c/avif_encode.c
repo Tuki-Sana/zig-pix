@@ -37,6 +37,7 @@ int pict_avif_encode(
     int            channels,
     int            quality,
     int            speed,
+    int            threads,
     const uint8_t *icc,
     size_t         icc_len,
     uint8_t      **out_data,
@@ -87,6 +88,7 @@ int pict_avif_encode(
     encoder->maxQuantizerAlpha = AVIF_QUANTIZER_LOSSLESS;
 #endif
     encoder->speed = speed;
+    encoder->maxThreads = (threads > 1) ? threads : 1;
 
     avifRWData output = AVIF_DATA_EMPTY;
     avifResult enc_result = avifEncoderWrite(encoder, image, &output);

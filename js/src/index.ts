@@ -102,7 +102,7 @@ const _encode_webp_v2 = _lib.func(
 );
 
 const _encode_avif = _lib.func(
-  "uint8 *pict_encode_avif(const uint8 *pixels, uint32 width, uint32 height, uint8 channels, uint8 quality, uint8 speed, uint64 *out_len)"
+  "uint8 *pict_encode_avif(const uint8 *pixels, uint32 width, uint32 height, uint8 channels, uint8 quality, uint8 speed, uint8 threads, uint64 *out_len)"
 );
 
 const _encode_png = _lib.func(
@@ -179,6 +179,12 @@ export interface AvifOptions {
    * 10 = fastest (lower quality), 0 = slowest (best quality).
    */
   speed?: number;
+  /**
+   * Encoder thread count (default: 1).
+   * Uses libaom row-based parallelism. No quality impact.
+   * Increase for batch processing or high-spec environments.
+   */
+  threads?: number;
 }
 
 export interface PngOptions {
@@ -332,16 +338,17 @@ export function encodeWebP(image: ImageBuffer, options: WebPOptions = {}): Buffe
  * @throws {Error} if encoding fails for a reason other than the above
  */
 export function encodeAvif(image: ImageBuffer, options: AvifOptions = {}): Buffer | null {
-  const { quality = 60, speed = 6 } = options;
+  const { quality = 60, speed = 6, threads = 1 } = options;
 
   if (!Number.isInteger(quality) || quality < 0 || quality > 100) return null;
   if (!Number.isInteger(speed)   || speed   < 0 || speed   > 10)  return null;
+  if (!Number.isInteger(threads) || threads < 1)                   return null;
 
   const outLen = new BigUint64Array(1);
   const ptr = _encode_avif(
     image.data,
     image.width, image.height, image.channels,
-    quality, speed,
+    quality, speed, threads,
     outLen,
   );
   if (ptr === null) return null;

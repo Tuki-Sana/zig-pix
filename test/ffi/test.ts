@@ -77,7 +77,7 @@ const lib = dlopen(LIB_PATH, {
     ],
     returns: FFIType.ptr,
   },
-  // pict_encode_avif(pixels, width, height, channels, quality, speed, out_len) -> ?[*]u8
+  // pict_encode_avif(pixels, width, height, channels, quality, speed, threads, out_len) -> ?[*]u8
   pict_encode_avif: {
     args: [
       FFIType.ptr, // pixels: [*c]const u8
@@ -86,6 +86,7 @@ const lib = dlopen(LIB_PATH, {
       FFIType.u8,  // channels: u8
       FFIType.u8,  // quality: u8  (0..100)
       FFIType.u8,  // speed: u8    (0..10)
+      FFIType.u8,  // threads: u8  (1..N)
       FFIType.ptr, // out_len: ?*usize
     ],
     returns: FFIType.ptr,
@@ -356,6 +357,7 @@ try {
       W, H, CH,
       60,  // quality
       8,   // speed (fast for tests)
+      1,   // threads
       ptr(outLen),
     );
 
@@ -381,7 +383,7 @@ try {
     const result = symbols.pict_encode_avif(
       null,   // null pixels
       4, 4, 3,
-      60, 8,
+      60, 8, 1,
       ptr(outLen),
     );
 
@@ -406,6 +408,7 @@ try {
       W, H, CH,
       255,  // quality out of range (>100)
       8,
+      1,
       ptr(outLen),
     );
     if (resultQ !== null) {
@@ -419,6 +422,7 @@ try {
       W, H, CH,
       60,
       255,  // speed out of range (>10)
+      1,
       ptr(outLen),
     );
     if (resultS !== null) {
@@ -554,11 +558,42 @@ try {
       symbols.pict_free_buffer(result, outLen[0]);
     }
   }
+  // ── Case K: pict_encode_avif threads=4 ──────────────────────────────────
+  // Row-based parallelism: threads=4 must still produce valid AVIF output.
+  {
+    const W = 16;
+    const H = 16;
+    const CH = 3;
+    const pixels = new Uint8Array(W * H * CH).fill(128);
+    const outLen = new BigUint64Array(1);
+
+    const result = symbols.pict_encode_avif(
+      ptr(pixels),
+      W, H, CH,
+      60,  // quality
+      8,   // speed
+      4,   // threads
+      ptr(outLen),
+    );
+
+    if (result === null) {
+      fail("K: pict_encode_avif threads=4", "returned null");
+    } else {
+      const header = new Uint8Array(toArrayBuffer(result, 0, 8));
+      const brand = String.fromCharCode(header[4], header[5], header[6], header[7]);
+      symbols.pict_free_buffer(result, outLen[0]);
+      if (brand !== "ftyp") {
+        fail("K: pict_encode_avif threads=4", `expected "ftyp" at bytes[4..8], got "${brand}"`);
+      } else {
+        pass(`K: pict_encode_avif threads=4 — ftyp verified, out_len=${outLen[0]}`);
+      }
+    }
+  }
 } finally {
   lib.close();
 }
 
-const TOTAL = 11;
+const TOTAL = 12;
 if (failed > 0) {
   console.error(`\n${failed} / ${TOTAL} test(s) FAILED.`);
   process.exit(1);

@@ -169,13 +169,32 @@ try {
   } catch (e) {
     fail("decode EXIF orientation=6", e instanceof Error ? e.message : String(e));
   }
+
+  // ── Step 9: encodeAvif threads=4 ───────────────────────────────────────────
+  try {
+    const avif = encodeAvif(small, { quality: 60, speed: 8, threads: 4 });
+    if (avif === null) {
+      fail("encodeAvif threads=4", "returned null");
+    } else if (avif.byteLength <= 100) {
+      fail("encodeAvif threads=4 size", `expected > 100 bytes, got ${avif.byteLength}`);
+    } else {
+      const brand = String.fromCharCode(avif[4], avif[5], avif[6], avif[7]);
+      if (brand !== "ftyp") {
+        fail("encodeAvif threads=4 header", `expected "ftyp" at bytes[4..8], got "${brand}"`);
+      } else {
+        pass(`encodeAvif threads=4 — ftyp verified, len=${avif.byteLength}`);
+      }
+    }
+  } catch (e) {
+    fail("encodeAvif threads=4", e instanceof Error ? e.message : String(e));
+  }
 } catch (e) {
   console.error("Unexpected error:", e instanceof Error ? e.message : e);
   process.exit(1);
 }
 
 // ── Summary ──────────────────────────────────────────────────────────────────
-const TOTAL = 9; // 1, 2, 3, decode(WebP), 5, 6, 7, crop→encodePng, 8
+const TOTAL = 10; // 1, 2, 3, decode(WebP), 5, 6, 7, crop→encodePng, 8, 9
 if (failed > 0) {
   console.error(`\n${failed} / ${TOTAL} E2E test(s) FAILED.`);
   process.exit(1);
