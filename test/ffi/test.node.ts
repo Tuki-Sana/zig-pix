@@ -64,9 +64,9 @@ const pict_encode_webp_v2 = lib.func(
   "uint8 *pict_encode_webp_v2(const uint8 *pixels, uint32 width, uint32 height, uint8 channels, float quality, bool lossless, uint8 *icc, uint64 icc_len, uint64 *out_len)"
 );
 
-// pict_encode_avif(pixels, width, height, channels, quality, speed, out_len) -> uint8 * | null
+// pict_encode_avif(pixels, width, height, channels, quality, speed, threads, out_len) -> uint8 * | null
 const pict_encode_avif = lib.func(
-  "uint8 *pict_encode_avif(const uint8 *pixels, uint32 width, uint32 height, uint8 channels, uint8 quality, uint8 speed, uint64 *out_len)"
+  "uint8 *pict_encode_avif(const uint8 *pixels, uint32 width, uint32 height, uint8 channels, uint8 quality, uint8 speed, uint8 threads, uint64 *out_len)"
 );
 
 // pict_encode_png(pixels, width, height, channels, compression, icc, icc_len, out_len) -> uint8 * | null
@@ -293,6 +293,7 @@ try {
       W, H, CH,
       60,  // quality
       8,   // speed (fast for tests)
+      1,   // threads
       outLen,
     );
 
@@ -317,7 +318,7 @@ try {
     const result = pict_encode_avif(
       null,  // null pixels
       4, 4, 3,
-      60, 8,
+      60, 8, 1,
       outLen,
     );
 
@@ -340,6 +341,7 @@ try {
       W, H, CH,
       255,  // quality out of range (>100)
       8,
+      1,
       outLen,
     );
     if (resultQ !== null) {
@@ -353,6 +355,7 @@ try {
       W, H, CH,
       60,
       255,  // speed out of range (>10)
+      1,
       outLen,
     );
     if (resultS !== null) {
@@ -448,11 +451,40 @@ try {
       }
     }
   }
+  // ── Case K: pict_encode_avif threads=4 ──────────────────────────────────
+  // Row-based parallelism: threads=4 must still produce valid AVIF output.
+  {
+    const W = 16, H = 16, CH = 3;
+    const pixels = Buffer.alloc(W * H * CH, 128);
+    const outLen = new BigUint64Array(1);
+
+    const result = pict_encode_avif(
+      pixels,
+      W, H, CH,
+      60,  // quality
+      8,   // speed
+      4,   // threads
+      outLen,
+    );
+
+    if (result === null) {
+      fail("K: pict_encode_avif threads=4", "returned null");
+    } else {
+      const header: number[] = koffi.decode(result, "uint8", 8);
+      const brand = String.fromCharCode(header[4], header[5], header[6], header[7]);
+      pict_free_buffer(result, outLen[0]);
+      if (brand !== "ftyp") {
+        fail("K: pict_encode_avif threads=4", `expected "ftyp" at bytes[4..8], got "${brand}"`);
+      } else {
+        pass(`K: pict_encode_avif threads=4 — ftyp verified, out_len=${outLen[0]}`);
+      }
+    }
+  }
 } finally {
   lib?.unload();
 }
 
-const TOTAL = 11;
+const TOTAL = 12;
 if (failed > 0) {
   console.error(`\n${failed} / ${TOTAL} test(s) FAILED.`);
   process.exit(1);

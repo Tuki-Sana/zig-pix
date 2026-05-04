@@ -293,6 +293,7 @@ export fn pict_encode_avif(
     channels: u8,
     quality: u8,
     speed: u8,
+    threads: u8,
     out_len: ?*usize,
 ) ?[*]u8 {
     if (comptime !has_avif) return null;
@@ -317,6 +318,7 @@ export fn pict_encode_avif(
     var encoded = enc.encode(img, .{ .avif = .{
         .quality = quality,
         .speed   = speed,
+        .threads = threads,
     } }, ffi_alloc) catch return null;
 
     if (out_len) |ol| ol.* = encoded.data.len;

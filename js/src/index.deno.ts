@@ -133,6 +133,7 @@ const _lib = Deno.dlopen(resolveLibPath(), {
       "u8",      // uint8 channels
       "u8",      // uint8 quality
       "u8",      // uint8 speed
+      "u8",      // uint8 threads
       "pointer", // uint64 *out_len
     ],
     result: "pointer",
@@ -263,6 +264,8 @@ export interface AvifOptions {
    * 10 = fastest (lower quality), 0 = slowest (best quality).
    */
   speed?: number;
+  /** libaom row-based parallelism thread count (default: 1). No quality impact. */
+  threads?: number;
 }
 
 export interface PngOptions {
@@ -441,16 +444,17 @@ export function encodeWebP(image: ImageBuffer, options: WebPOptions = {}): Uint8
  * @throws {Error} if encoding fails for a reason other than the above
  */
 export function encodeAvif(image: ImageBuffer, options: AvifOptions = {}): Uint8Array | null {
-  const { quality = 60, speed = 6 } = options;
+  const { quality = 60, speed = 6, threads = 1 } = options;
 
   if (!Number.isInteger(quality) || quality < 0 || quality > 100) return null;
   if (!Number.isInteger(speed)   || speed   < 0 || speed   > 10)  return null;
+  if (!Number.isInteger(threads) || threads < 1)                   return null;
 
   const outLenBuf = new Uint8Array(8);
   const ptr = _lib.symbols.pict_encode_avif(
     Deno.UnsafePointer.of(image.data),
     image.width, image.height, image.channels,
-    quality, speed,
+    quality, speed, threads,
     Deno.UnsafePointer.of(outLenBuf),
   );
 

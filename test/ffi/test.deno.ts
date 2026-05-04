@@ -204,8 +204,30 @@ function fail(label: string, reason: string): void {
   }
 }
 
+// ── Case K: encodeAvif threads=4 ──────────────────────────────────────────────
+// Row-based parallelism: threads=4 must still produce valid AVIF output.
+{
+  try {
+    const raw = new Uint8Array(16 * 16 * 3).fill(128);
+    const img = { data: raw, width: 16, height: 16, channels: 3 };
+    const avif = encodeAvif(img, { quality: 60, speed: 8, threads: 4 });
+    if (avif === null) {
+      fail("K: encodeAvif threads=4", "returned null");
+    } else {
+      const brand = String.fromCharCode(avif[4], avif[5], avif[6], avif[7]);
+      if (brand !== "ftyp") {
+        fail("K: encodeAvif threads=4", `expected "ftyp" at bytes[4..8], got "${brand}"`);
+      } else {
+        pass(`K: encodeAvif threads=4 — ftyp verified, out_len=${avif.byteLength}`);
+      }
+    }
+  } catch (e) {
+    fail("K: encodeAvif threads=4", e instanceof Error ? e.message : String(e));
+  }
+}
+
 // ── Summary ───────────────────────────────────────────────────────────────────
-const TOTAL = 9; // A, B, C, E, G×2, H, I, J
+const TOTAL = 10; // A, B, C, E, G×2, H, I, J, K
 if (failed > 0) {
   console.error(`\n${failed} / ${TOTAL} test(s) FAILED.`);
   Deno.exit(1);
