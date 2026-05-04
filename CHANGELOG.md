@@ -7,6 +7,20 @@
 
 （次パッチ以降の差分をここに書く）
 
+## [0.6.0] - 2026-05-04
+
+### 追加
+
+- **AVIF・GIF decode 対応**: `decode()` が JPEG / PNG / WebP に加え **AVIF** と **GIF**（先頭フレームのみ）を受け付けるようになった。AVIF は libavif / libaom を利用。GIF は stb_image.h（GIF 専用ビルド、MIT/Public Domain）。
+- **`resize()` に `fit` オプション追加**: `"stretch"`（デフォルト、従来動作）・`"contain"`（縦横比保持・枠内最大化）・`"cover"`（縦横比保持・中央クロップ）の 3 モードをサポート。Zig 側は `pict_resize_v2` として実装（`out_actual_w` / `out_actual_h` を返す）。
+- **`convert()` パイプライン関数**: `convert(input, { resize?, crop?, encode })` で decode → crop → resize → encode を一発実行。AVIF encode 時のみ `null` を返す可能性がある（他フォーマットは常にバイト列を返す）。
+
+### ABI 変更
+
+- `pict_resize_v2` を新規追加（`fit: uint8` および `out_actual_w` / `out_actual_h` 出力パラメータ）。`pict_resize` は引き続き利用可能。
+- `pict_avif_decode` / `pict_avif_decode_free` を新規追加（libavif ビルドの場合）。
+- `pict_gif_decode` / `pict_gif_decode_free` を新規追加（stb_image.h 経由、常に RGB 出力）。
+
 ## [0.5.0] - 2026-05-04
 
 ### 追加
