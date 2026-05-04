@@ -12,6 +12,9 @@
     },
     "./deno": "./js/dist/index.deno.js"
   },
+  "bin": {
+    "zenpix": "js/dist/cli.js"
+  },
   "files": [
     "js/dist",
     "README.md",
@@ -20,7 +23,7 @@
     "THIRD_PARTY_LICENSES"
   ],
   "scripts": {
-    "build": "tsc && npx esbuild js/src/index.deno.ts --bundle=false --platform=neutral --format=esm --outfile=js/dist/index.deno.js",
+    "build": "tsc && npx esbuild js/src/index.deno.ts --bundle=false --platform=neutral --format=esm --outfile=js/dist/index.deno.js && node scripts/add-shebang.mjs",
     "prepublishOnly": "npm run build",
     "test:bun": "bash test/ffi/run.sh",
     "test:node": "bash test/ffi/run.node.sh",
