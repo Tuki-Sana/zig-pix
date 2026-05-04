@@ -112,6 +112,8 @@ export fn pict_decode_v2(
         .jpeg    => decode.jpegDecoder(),
         .png     => decode.pngDecoder(),
         .webp    => decode.webpDecoder(),
+        .avif    => decode.avifDecoder(),
+        .gif     => decode.gifDecoder(),
         .unknown => return null,
     };
     defer decoder.deinit();
@@ -159,6 +161,8 @@ export fn pict_decode_v3(
         .jpeg    => decode.jpegDecoder(),
         .png     => decode.pngDecoder(),
         .webp    => decode.webpDecoder(),
+        .avif    => decode.avifDecoder(),
+        .gif     => decode.gifDecoder(),
         .unknown => return null,
     };
     defer decoder.deinit();
@@ -221,6 +225,98 @@ export fn pict_resize(
     };
 
     if (out_len) |ol| ol.* = dst_size;
+    return dst_buf.ptr;
+}
+
+/// `pict_resize` の fit モード対応版。
+/// fit: 0=stretch (既存と同じ), 1=contain (縦横比保持、dst_w×dst_h に収まる最大), 2=cover (縦横比保持、中央クロップ)
+/// out_actual_w / out_actual_h: 実際の出力寸法（contain では dst より小さくなりうる）
+/// 成功時: リサイズ済みピクセルデータ (pict_free_buffer(ptr, out_len) で解放)。失敗時: null。
+export fn pict_resize_v2(
+    src: [*c]const u8,
+    src_w: u32,
+    src_h: u32,
+    channels: u8,
+    dst_w: u32,
+    dst_h: u32,
+    fit: u8,
+    n_threads: u32,
+    out_actual_w: ?*u32,
+    out_actual_h: ?*u32,
+    out_len: ?*usize,
+) ?[*]u8 {
+    if (src == null or out_len == null) return null;
+    if (src_w == 0 or src_h == 0 or dst_w == 0 or dst_h == 0 or channels == 0) return null;
+
+    const FitDims = struct { actual_w: u32, actual_h: u32, scaled_w: u32, scaled_h: u32 };
+    const dims: FitDims = switch (fit) {
+        1 => blk: { // contain
+            const sx = @as(f64, @floatFromInt(dst_w)) / @as(f64, @floatFromInt(src_w));
+            const sy = @as(f64, @floatFromInt(dst_h)) / @as(f64, @floatFromInt(src_h));
+            const s = @min(sx, sy);
+            const aw = @max(1, @as(u32, @intFromFloat(@round(@as(f64, @floatFromInt(src_w)) * s))));
+            const ah = @max(1, @as(u32, @intFromFloat(@round(@as(f64, @floatFromInt(src_h)) * s))));
+            break :blk .{ .actual_w = aw, .actual_h = ah, .scaled_w = aw, .scaled_h = ah };
+        },
+        2 => blk: { // cover
+            const sx = @as(f64, @floatFromInt(dst_w)) / @as(f64, @floatFromInt(src_w));
+            const sy = @as(f64, @floatFromInt(dst_h)) / @as(f64, @floatFromInt(src_h));
+            const s = @max(sx, sy);
+            const sw = @max(dst_w, @as(u32, @intFromFloat(@round(@as(f64, @floatFromInt(src_w)) * s))));
+            const sh = @max(dst_h, @as(u32, @intFromFloat(@round(@as(f64, @floatFromInt(src_h)) * s))));
+            break :blk .{ .actual_w = dst_w, .actual_h = dst_h, .scaled_w = sw, .scaled_h = sh };
+        },
+        else => .{ .actual_w = dst_w, .actual_h = dst_h, .scaled_w = dst_w, .scaled_h = dst_h },
+    };
+
+    const src_size = mul3SizeChecked(src_w, src_h, channels) orelse return null;
+
+    if (fit == 2 and (dims.scaled_w != dims.actual_w or dims.scaled_h != dims.actual_h)) {
+        // cover: 中間サイズにリサイズ → 中央クロップ
+        const mid_size = mul3SizeChecked(dims.scaled_w, dims.scaled_h, channels) orelse return null;
+        const mid_buf = ffi_alloc.alloc(u8, mid_size) catch return null;
+        defer ffi_alloc.free(mid_buf);
+
+        resize.resizeLanczos3(ffi_alloc, src[0..src_size], mid_buf, .{
+            .src_width = src_w, .src_height = src_h,
+            .dst_width = dims.scaled_w, .dst_height = dims.scaled_h,
+            .channels = channels, .n_threads = n_threads,
+        }) catch return null;
+
+        const crop_left = (dims.scaled_w - dims.actual_w) / 2;
+        const crop_top  = (dims.scaled_h - dims.actual_h) / 2;
+        const ch: usize = channels;
+        const dst_size = mul3SizeChecked(dims.actual_w, dims.actual_h, channels) orelse return null;
+        const dst_buf = ffi_alloc.alloc(u8, dst_size) catch return null;
+
+        for (0..dims.actual_h) |y| {
+            const src_off = (crop_top + y) * dims.scaled_w * ch + crop_left * ch;
+            const dst_off = y * dims.actual_w * ch;
+            @memcpy(dst_buf[dst_off..][0..dims.actual_w * ch], mid_buf[src_off..][0..dims.actual_w * ch]);
+        }
+
+        if (out_actual_w) |p| p.* = dims.actual_w;
+        if (out_actual_h) |p| p.* = dims.actual_h;
+        out_len.?.* = dst_size;
+        return dst_buf.ptr;
+    }
+
+    // stretch / contain: 直接リサイズ
+    const dst_size = mul3SizeChecked(dims.actual_w, dims.actual_h, channels) orelse return null;
+    const dst_buf = ffi_alloc.alloc(u8, dst_size) catch return null;
+
+    resize.resizeLanczos3(ffi_alloc, src[0..src_size], dst_buf, .{
+        .src_width = src_w, .src_height = src_h,
+        .dst_width = dims.actual_w, .dst_height = dims.actual_h,
+        .channels = channels, .n_threads = n_threads,
+    }) catch {
+        ffi_alloc.free(dst_buf);
+        return null;
+    };
+
+    if (out_actual_w) |p| p.* = dims.actual_w;
+    if (out_actual_h) |p| p.* = dims.actual_h;
+    out_len.?.* = dst_size;
     return dst_buf.ptr;
 }
 

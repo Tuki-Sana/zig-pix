@@ -14,7 +14,7 @@
  *   deno run --allow-read --allow-ffi --allow-env test/e2e/e2e.deno.ts
  */
 
-import { decode, resize, encodeWebP, encodeAvif, encodePng, crop } from "../../js/src/index.deno.ts";
+import { decode, resize, encodeWebP, encodeAvif, encodePng, crop, convert } from "../../js/src/index.deno.ts";
 import { join, dirname, fromFileUrl } from "jsr:@std/path";
 
 const __dirname = dirname(fromFileUrl(import.meta.url));
@@ -185,13 +185,49 @@ try {
   } catch (e) {
     fail("encodeAvif threads=4", e instanceof Error ? e.message : String(e));
   }
+  // ── Step 10: decode AVIF ─────────────────────────────────────────────────────
+  try {
+    const avifPath = join(__dirname, "../../vendor/libavif/tests/data/paris_icc_exif_xmp.avif");
+    const avifBytes = Deno.readFileSync(avifPath);
+    const avifImg = decode(avifBytes);
+    if (avifImg.width !== 403 || avifImg.height !== 302) {
+      fail("decode AVIF", `expected 403x302, got ${avifImg.width}x${avifImg.height}`);
+    } else {
+      pass(`decode AVIF — ${avifImg.width}x${avifImg.height} ch=${avifImg.channels}`);
+    }
+  } catch (e) {
+    fail("decode AVIF", e instanceof Error ? e.message : String(e));
+  }
+
+  // ── Step 11: convert pipeline ─────────────────────────────────────────────
+  try {
+    const inputBytes = Deno.readFileSync(join(__dirname, "../fixtures/e2e_input.png"));
+    const result = convert(inputBytes, {
+      resize: { width: 64, height: 64, fit: "cover" },
+      encode: { format: "webp", quality: 80 },
+    });
+    if (result === null) {
+      fail("convert", "returned null");
+    } else if (result.byteLength < 10) {
+      fail("convert size", `expected > 10 bytes, got ${result.byteLength}`);
+    } else {
+      const isRiff = result[0] === 0x52 && result[1] === 0x49 && result[2] === 0x46 && result[3] === 0x46;
+      if (!isRiff) {
+        fail("convert header", `expected RIFF (WebP), got bytes ${Array.from(result.slice(0,4))}`);
+      } else {
+        pass(`convert — decode→resize(cover 64×64)→WebP, len=${result.byteLength}`);
+      }
+    }
+  } catch (e) {
+    fail("convert", e instanceof Error ? e.message : String(e));
+  }
 } catch (e) {
   console.error("Unexpected error:", e instanceof Error ? e.message : e);
   Deno.exit(1);
 }
 
 // ── Summary ──────────────────────────────────────────────────────────────────
-const TOTAL = 10; // 1, 2, 3, decode(WebP), 5, 6, 7, crop→encodePng, 8, 9
+const TOTAL = 12; // 1, 2, 3, decode(WebP), 5, 6, 7, crop→encodePng, 8, 9, 10, 11
 if (failed > 0) {
   console.error(`\n${failed} / ${TOTAL} E2E test(s) FAILED.`);
   Deno.exit(1);

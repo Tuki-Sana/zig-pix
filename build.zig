@@ -108,7 +108,7 @@ pub fn build(b: *std.Build) void {
         .static => addLibAvifStatic(b, cli),
     }
     cli.addCSourceFiles(.{
-        .files = &.{"src/c/avif_encode.c"},
+        .files = &.{"src/c/avif_encode.c", "src/c/avif_decode.c"},
         .flags = &.{"-std=c11"},
     });
     b.installArtifact(cli);
@@ -172,7 +172,7 @@ pub fn build(b: *std.Build) void {
         .static => addLibAvifStatic(b, ffi_lib),
     }
     ffi_lib.addCSourceFiles(.{
-        .files = &.{"src/c/avif_encode.c"},
+        .files = &.{"src/c/avif_encode.c", "src/c/avif_decode.c"},
         .flags = &.{"-std=c11"},
     });
 
@@ -215,7 +215,7 @@ pub fn build(b: *std.Build) void {
     // CI / 手元とも `zig build lib-windows` は `-Davif=static` と CMake 済みの build/libavif-install を前提にする。
     addLibAvifStatic(b, ffi_lib_win);
     ffi_lib_win.addCSourceFiles(.{
-        .files = &.{"src/c/avif_encode.c"},
+        .files = &.{"src/c/avif_encode.c", "src/c/avif_decode.c"},
         .flags = &.{"-std=c11"},
     });
 
@@ -239,7 +239,7 @@ pub fn build(b: *std.Build) void {
     addCLibraries(b, ffi_lib_win_arm);
     addLibAvifStatic(b, ffi_lib_win_arm);
     ffi_lib_win_arm.addCSourceFiles(.{
-        .files = &.{"src/c/avif_encode.c"},
+        .files = &.{"src/c/avif_encode.c", "src/c/avif_decode.c"},
         .flags = &.{"-std=c11"},
     });
 
@@ -298,13 +298,14 @@ fn addCLibraries(b: *std.Build, artifact: *std.Build.Step.Compile) void {
     addLibpng(b, artifact);
     addLibjpegTurbo(b, artifact);
     addLibwebp(b, artifact);
-    // pict-zig-engine C bridges (JPEG/PNG decode, WebP encode)
+    // pict-zig-engine C bridges (JPEG/PNG decode, WebP encode, GIF decode)
     artifact.addCSourceFiles(.{
         .files = &.{
             "src/c/jpeg_decode.c",
             "src/c/png_decode.c",
             "src/c/webp_encode.c",
             "src/c/webp_decode.c",
+            "src/c/gif_decode.c",
         },
         .flags = &.{"-std=c11"},
     });
